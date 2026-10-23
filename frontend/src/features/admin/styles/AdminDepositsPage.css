@@ -1,0 +1,362 @@
+
+.admin-deposits-page {
+  width: 100%;
+  min-width: 0;
+  color: #182230;
+}
+
+.admin-deposits-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.admin-deposits-heading h1 {
+  margin: 4px 0 8px;
+  font-size: clamp(24px, 3vw, 32px);
+}
+
+.admin-deposits-heading p {
+  margin: 0;
+  color: #667085;
+}
+
+.admin-deposits-eyebrow {
+  color: #287b50 !important;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1.3px;
+}
+
+.admin-deposits-refresh,
+.admin-deposits-filters button,
+.admin-deposits-proof-button {
+  border: 1px solid #d8e0e8;
+  background: #fff;
+  color: #253347;
+  border-radius: 9px;
+  padding: 10px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-deposits-refresh:disabled,
+.admin-deposits-page button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.admin-deposits-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.admin-deposits-filters button.is-active {
+  background: #176b45;
+  border-color: #176b45;
+  color: #fff;
+}
+
+.admin-deposits-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.admin-deposits-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px;
+  background: #fff;
+  border: 1px solid #e5eaf0;
+  border-radius: 12px;
+}
+
+.admin-deposits-summary span {
+  color: #667085;
+  font-size: 13px;
+}
+
+.admin-deposits-summary strong {
+  font-size: 25px;
+}
+
+.admin-deposits-alert {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 9px;
+}
+
+.admin-deposits-alert.error {
+  color: #9b1c1c;
+  background: #fff0f0;
+}
+
+.admin-deposits-alert.success {
+  color: #176b45;
+  background: #eaf8ef;
+}
+
+.admin-deposits-alert button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 20px;
+}
+
+.admin-deposits-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  background: #fff;
+  border: 1px solid #e5eaf0;
+  border-radius: 12px;
+}
+
+.admin-deposits-table {
+  width: 100%;
+  min-width: 1000px;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.admin-deposits-table th,
+.admin-deposits-table td {
+  padding: 14px 12px;
+  border-bottom: 1px solid #edf0f4;
+  vertical-align: middle;
+}
+
+.admin-deposits-table th {
+  background: #f8fafc;
+  color: #596579;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.admin-deposits-table td {
+  font-size: 13px;
+}
+
+.admin-deposits-table td strong,
+.admin-deposits-table td small {
+  display: block;
+}
+
+.admin-deposits-table td small {
+  margin-top: 5px;
+  color: #667085;
+  overflow-wrap: anywhere;
+}
+
+.admin-deposits-amount {
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.admin-deposits-utr {
+  font-family: monospace;
+  overflow-wrap: anywhere;
+}
+
+.admin-deposits-status {
+  display: inline-block;
+  padding: 6px 8px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+  background: #edf0f4;
+  color: #475467;
+}
+
+.admin-deposits-status.status-pending {
+  background: #fff3d8;
+  color: #8a5200;
+}
+
+.admin-deposits-status.status-processing {
+  background: #eaf2ff;
+  color: #174ea6;
+}
+
+.admin-deposits-status.status-approved {
+  background: #e4f7eb;
+  color: #176b45;
+}
+
+.admin-deposits-status.status-rejected {
+  background: #ffebeb;
+  color: #a32020;
+}
+
+.admin-deposits-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-deposits-approve,
+.admin-deposits-reject {
+  border: 0;
+  border-radius: 7px;
+  padding: 8px 10px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.admin-deposits-approve {
+  background: #167347;
+}
+
+.admin-deposits-reject {
+  background: #b42318;
+}
+
+.admin-deposits-proof-button {
+  padding: 8px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.admin-deposits-no-action {
+  color: #98a2b3;
+  font-size: 12px;
+}
+
+.admin-deposits-reason {
+  max-width: 190px;
+  color: #a32020 !important;
+  overflow-wrap: anywhere;
+}
+
+.admin-deposits-empty {
+  padding: 32px 20px;
+  text-align: center;
+  color: #667085;
+}
+
+.admin-deposits-modal-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgb(12 20 32 / 65%);
+}
+
+.admin-deposits-modal,
+.admin-deposits-proof-modal {
+  width: min(100%, 480px);
+  max-height: 90vh;
+  overflow: auto;
+  padding: 22px;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 20%);
+}
+
+.admin-deposits-modal h2,
+.admin-deposits-proof-heading h2 {
+  margin-top: 0;
+}
+
+.admin-deposits-modal p,
+.admin-deposits-proof-heading p {
+  color: #667085;
+  overflow-wrap: anywhere;
+}
+
+.admin-deposits-modal label {
+  display: block;
+  margin: 18px 0 8px;
+  font-weight: 700;
+}
+
+.admin-deposits-modal textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 12px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  font: inherit;
+}
+
+.admin-deposits-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.admin-deposits-modal-actions button {
+  padding: 10px 14px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.admin-deposits-modal-actions .admin-deposits-reject {
+  background: #b42318;
+  border-color: #b42318;
+  color: #fff;
+}
+
+.admin-deposits-proof-modal {
+  width: min(100%, 850px);
+}
+
+.admin-deposits-proof-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.admin-deposits-proof-heading button {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  font-size: 28px;
+  cursor: pointer;
+}
+
+.admin-deposits-proof-modal img {
+  display: block;
+  max-width: 100%;
+  max-height: 68vh;
+  margin: 12px auto 0;
+  object-fit: contain;
+}
+
+@media (max-width: 600px) {
+  .admin-deposits-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-deposits-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-deposits-filters button {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+}

@@ -1,0 +1,554 @@
+
+/* =========================================
+   CRICKETCLASH HEADER
+   Burgundy, white and gold theme
+   ========================================= */
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  width: 100%;
+  background: #fff;
+  border-bottom: 1px solid #eee5e8;
+}
+
+.site-header .header-inner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 68px;
+}
+
+.site-header .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: #481426;
+  font-size: 21px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.site-header .brand-mark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  color: #fff;
+  background: #481426;
+  font-size: 19px;
+}
+
+.site-header .brand-accent {
+  color: #8b1538;
+}
+
+.site-header .desktop-nav {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.site-header .desktop-nav a,
+.site-header .login-link {
+  color: #8b1538;
+  font-size: 14px;
+  font-weight: 400;
+  text-decoration: none;
+  transition: color 150ms ease;
+}
+
+.site-header .desktop-nav a:hover,
+.site-header .login-link:hover {
+  color: #481426;
+}
+
+.site-header .header-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.site-header .header-register {
+  text-decoration: none;
+}
+
+.mobile-header-left,
+.mobile-menu-toggle {
+  display: none;
+}
+
+/* =========================================
+   MOBILE MENU OVERLAY
+   ========================================= */
+
+.mobile-menu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  background: rgb(35 15 23 / 45%);
+  animation: drawer-overlay-in 160ms ease-out;
+}
+
+/* =========================================
+   MOBILE DRAWER
+   ========================================= */
+
+.mobile-menu-drawer {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 75%;
+  max-width: 360px;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-right: auto;
+  color: #34252a;
+  background: #fff;
+  box-shadow: 5px 0 20px rgb(0 0 0 / 12%);
+  animation: drawer-slide-in 180ms ease-out;
+}
+
+/* =========================================
+   DRAWER HEADER
+   ========================================= */
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px;
+  border-bottom: 1px solid #eee5e8;
+}
+
+.drawer-title {
+  color: #481426;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.drawer-close {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: #481426;
+  background: transparent;
+  font-size: 25px;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.drawer-close:hover {
+  background: #f8f1f3;
+}
+
+/* =========================================
+   DRAWER CONTENT
+   ========================================= */
+
+.drawer-content {
+  padding: 18px 20px;
+}
+
+.drawer-main-link {
+  display: block;
+  width: 100%;
+  padding: 12px 0;
+  border: 0;
+  color: #481426;
+  background: transparent;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.drawer-main-link:hover {
+  color: #8b1538;
+}
+
+.drawer-section {
+  border-top: 1px solid #f0e8eb;
+}
+
+.drawer-section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 12px;
+  padding: 15px 0;
+  border: 0;
+  color: #481426;
+  background: transparent;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.drawer-section-toggle:hover {
+  color: #8b1538;
+}
+
+.drawer-chevron {
+  color: #8b1538;
+  font-size: 18px;
+  font-weight: 400;
+}
+
+/* Nested menu links */
+.drawer-submenu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: -2px 0 12px 8px;
+  padding-left: 14px;
+  border-left: 2px solid #ead8df;
+}
+
+.drawer-submenu a,
+.drawer-submenu button {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 8px;
+  border: 0;
+  border-radius: 5px;
+  color: #75636b;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    background 150ms ease;
+}
+
+.drawer-submenu a:hover,
+.drawer-submenu button:hover {
+  color: #681b32;
+  background: #faf4f6;
+}
+
+.drawer-submenu a:focus-visible,
+.drawer-submenu button:focus-visible,
+.drawer-section-toggle:focus-visible,
+.drawer-main-link:focus-visible {
+  outline: 2px solid #b78b38;
+  outline-offset: 3px;
+}
+
+/* =========================================
+   DRAWER FOOTER
+   ========================================= */
+
+.drawer-footer {
+  margin-top: auto;
+  padding: 20px;
+  border-top: 1px solid #eee5e8;
+}
+
+.drawer-footer > p {
+  margin: 0 0 9px;
+  color: #75636b;
+  font-size: 12px;
+}
+
+.drawer-register {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 7px;
+  color: #fff;
+  background: #481426;
+  font-size: 13px;
+  text-decoration: none;
+  transition: background 150ms ease;
+}
+
+.drawer-register:hover {
+  background: #612039;
+}
+
+.drawer-footer-note {
+  display: block;
+  margin-top: 14px;
+  color: #a08c94;
+  font-size: 11px;
+  text-align: center;
+}
+
+/* =========================================
+   ICON-ONLY MENU SUPPORT
+   Optional icon navigation styles.
+
+   Add class="icon-menu" to a navigation
+   container if you want icon-only controls.
+   ========================================= */
+
+.icon-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.icon-menu-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid #eee1e5;
+  border-radius: 9px;
+  color: #681b32;
+  background: #fff;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    background 150ms ease,
+    border-color 150ms ease;
+}
+
+.icon-menu-item:hover,
+.icon-menu-item[aria-expanded="true"] {
+  color: #fff;
+  background: #681b32;
+  border-color: #681b32;
+}
+
+.icon-menu-item:focus-visible {
+  outline: 2px solid #b78b38;
+  outline-offset: 3px;
+}
+
+/* Tooltip: show the name on hover and keyboard focus */
+.icon-menu-item::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  z-index: 2100;
+  transform: translateY(-50%) translateX(-4px);
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: #fff;
+  background: #481426;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease,
+    visibility 150ms ease;
+}
+
+.icon-menu-item:hover::after,
+.icon-menu-item:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(-50%) translateX(0);
+}
+
+/* =========================================
+   MOBILE RESPONSIVENESS
+   ========================================= */
+
+@media (max-width: 768px) {
+  .site-header .header-inner {
+    min-height: 62px;
+    gap: 12px;
+  }
+
+  .mobile-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    order: 1;
+  }
+
+  .mobile-menu-label {
+    color: #481426;
+    font-size: 13px;
+  }
+
+  .mobile-menu-toggle {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    gap: 5px;
+    width: 40px;
+    height: 40px;
+    padding: 8px;
+    border: 1px solid #eee1e5;
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+    transition: background 150ms ease;
+  }
+
+  .mobile-menu-toggle:hover {
+    background: #faf4f6;
+  }
+
+  .mobile-menu-toggle:focus-visible {
+    outline: 2px solid #b78b38;
+    outline-offset: 3px;
+  }
+
+  .mobile-menu-toggle span {
+    display: block;
+    width: 20px;
+    height: 2px;
+    border-radius: 2px;
+    background: #481426;
+  }
+
+  .site-header .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    order: 2;
+    margin-left: auto;
+    font-size: 19px;
+  }
+
+  .site-header .brand-mark {
+    width: 30px;
+    height: 30px;
+    font-size: 17px;
+  }
+
+  .site-header .desktop-nav,
+  .site-header .header-actions {
+    display: none !important;
+  }
+
+  .mobile-menu-drawer {
+    width: 75%;
+    max-width: 360px;
+  }
+}
+
+/* =========================================
+   SMALL MOBILE SCREENS
+   ========================================= */
+
+@media (max-width: 360px) {
+  .site-header .header-inner {
+    gap: 6px;
+  }
+
+  .site-header .brand {
+    gap: 5px;
+    font-size: 16px;
+  }
+
+  .site-header .brand-mark {
+    width: 27px;
+    height: 27px;
+    font-size: 15px;
+  }
+
+  .mobile-header-left {
+    gap: 6px;
+  }
+
+  .mobile-menu-toggle {
+    width: 36px;
+    height: 36px;
+  }
+
+  .mobile-menu-label {
+    font-size: 12px;
+  }
+
+  .mobile-menu-drawer {
+    width: 75%;
+  }
+
+  .drawer-header,
+  .drawer-footer {
+    padding: 16px;
+  }
+
+  .drawer-content {
+    padding: 14px 16px;
+  }
+}
+
+/* =========================================
+   ANIMATIONS & ACCESSIBILITY
+   ========================================= */
+
+@keyframes drawer-slide-in {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes drawer-overlay-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-menu-overlay,
+  .mobile-menu-drawer {
+    animation: none;
+  }
+
+  .site-header a,
+  .site-header button,
+  .drawer-register,
+  .drawer-close,
+  .icon-menu-item {
+    transition: none;
+  }
+}

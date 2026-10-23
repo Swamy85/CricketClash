@@ -1,0 +1,180 @@
+
+/* ========================================
+   CRICKETCLASH INFORMATION PAGES
+======================================== */
+
+.info-page {
+  min-height: 65vh;
+  padding: 48px 20px 64px;
+  box-sizing: border-box;
+  background: #faf7f8;
+  color: #34252a;
+}
+
+.info-page-container {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.info-page-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 28px;
+  color: #89747c;
+  font-size: 0.88rem;
+}
+
+.info-page-breadcrumb a {
+  color: #812642;
+  text-decoration: none;
+}
+
+.info-page-breadcrumb a:hover {
+  text-decoration: underline;
+}
+
+.info-page-header {
+  padding: 34px;
+  border: 1px solid #eadde2;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 8px 28px rgb(53 16 31 / 5%);
+}
+
+.info-page-eyebrow {
+  display: inline-block;
+  margin-bottom: 12px;
+  color: #8c2947;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.info-page-header h1 {
+  margin: 0;
+  color: #48172a;
+  font-size: clamp(2rem, 5vw, 2.8rem);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.info-page-header > p {
+  max-width: 720px;
+  margin: 16px 0 0;
+  color: #74616a;
+  font-size: 1rem;
+  line-height: 1.8;
+}
+
+.info-page-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 22px;
+}
+
+.info-page-section {
+  padding: 25px 28px;
+  border: 1px solid #eee3e7;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.info-page-section h2 {
+  margin: 0 0 12px;
+  color: #681b32;
+  font-size: 1.12rem;
+  line-height: 1.5;
+}
+
+.info-page-section p {
+  margin: 0;
+  color: #65545c;
+  font-size: 0.96rem;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+}
+
+.info-page-section p + p {
+  margin-top: 12px;
+}
+
+.info-page-back {
+  margin-top: 28px;
+}
+
+.info-page-back a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: #812642;
+  font-size: 0.94rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.info-page-back a:hover {
+  color: #4d1428;
+  text-decoration: underline;
+}
+
+.info-page a:focus-visible {
+  outline: 2px solid #a53b5d;
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+
+/* Tablet */
+
+@media (max-width: 768px) {
+  .info-page {
+    padding: 32px 16px 44px;
+  }
+
+  .info-page-header {
+    padding: 26px 22px;
+    border-radius: 14px;
+  }
+
+  .info-page-section {
+    padding: 22px;
+  }
+
+  .info-page-section p {
+    font-size: 0.94rem;
+  }
+}
+
+/* Small mobile */
+
+@media (max-width: 380px) {
+  .info-page {
+    padding: 24px 12px 36px;
+  }
+
+  .info-page-breadcrumb {
+    gap: 7px;
+    font-size: 0.8rem;
+  }
+
+  .info-page-header {
+    padding: 22px 17px;
+  }
+
+  .info-page-section {
+    padding: 19px 16px;
+  }
+
+  .info-page-section h2 {
+    font-size: 1.02rem;
+  }
+
+  .info-page-section p {
+    font-size: 0.9rem;
+    line-height: 1.75;
+  }
+}
