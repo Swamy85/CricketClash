@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import SessionTimeoutModal from "../components/SessionTimeoutModal";
 
@@ -30,6 +30,7 @@ const ACTIVITY_KEY = PLAYER_ACTIVITY_KEY;
 
 export function SessionProvider({ children }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const isAdminArea = location.pathname === "/admin" || location.pathname.startsWith("/admin/");
   const [status, setStatus] = useState(() =>
     sessionStorage.getItem(SESSION_STORAGE_KEY)
@@ -169,10 +170,15 @@ export function SessionProvider({ children }) {
 
         clearLocalSession();
 
-        window.location.replace(reason === "timeout" ? "/login?reason=timeout" : reason === "expired" ? "/login?reason=expired" : "/login");
+        const loginPath = reason === "timeout"
+          ? "/login?reason=timeout"
+          : reason === "expired"
+            ? "/login?reason=expired"
+            : "/login";
+        navigate(loginPath, { replace: true });
       }
     },
-    [clearLocalSession]
+    [clearLocalSession, navigate]
   );
 
   const stayLoggedIn = useCallback(async () => {
@@ -201,10 +207,11 @@ export function SessionProvider({ children }) {
         const reason = error.code === "SESSION_TIMEOUT" ? "timeout" : "expired";
         sessionStorage.setItem("cc_logout_reason", reason);
         clearLocalSession();
-        window.location.replace(
+        navigate(
           reason === "timeout"
             ? "/login?reason=timeout"
-            : "/login?reason=expired"
+            : "/login?reason=expired",
+          { replace: true }
         );
       } else {
         setSessionError(
@@ -215,7 +222,7 @@ export function SessionProvider({ children }) {
       stayingLoggedInRef.current = false;
       setBusy(false);
     }
-  }, [clearLocalSession]);
+  }, [clearLocalSession, navigate]);
 
   // Track activity for the inactivity timer.
   useEffect(() => {
@@ -352,10 +359,11 @@ export function SessionProvider({ children }) {
         : "expired";
       sessionStorage.setItem("cc_logout_reason", reason);
       clearLocalSession();
-      window.location.replace(
+      navigate(
         reason === "timeout"
           ? "/login?reason=timeout"
-          : "/login?reason=expired"
+          : "/login?reason=expired",
+        { replace: true }
       );
     };
 
@@ -363,7 +371,7 @@ export function SessionProvider({ children }) {
     return () => {
       window.removeEventListener("cricketclash:session-expired", handleSessionExpired);
     };
-  }, [clearLocalSession]);
+  }, [clearLocalSession, navigate]);
 
   const value = useMemo(
     () => ({
