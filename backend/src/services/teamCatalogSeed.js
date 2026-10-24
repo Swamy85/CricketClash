@@ -311,7 +311,18 @@ for (const name of indianDomesticTeams) {
 }
 
 export async function seedTeamCatalog() {
-  const operations = teams.map((team) => ({
+  if (!teams.length) return;
+
+  // Startup runs this seed after every Render restart. Avoid issuing a bulk
+  // upsert for the full catalog when the entries are already present.
+  const existingKeys = new Set(
+    (await Team.find({ teamKey: { $in: teams.map((team) => team.teamKey) } })
+      .select("teamKey")
+      .lean())
+      .map((team) => team.teamKey)
+  );
+  const missingTeams = teams.filter((team) => !existingKeys.has(team.teamKey));
+  const operations = missingTeams.map((team) => ({
     updateOne: {
       filter: { teamKey: team.teamKey },
       update: { $setOnInsert: team },
