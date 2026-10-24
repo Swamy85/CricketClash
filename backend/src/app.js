@@ -50,6 +50,7 @@ import contestRoutes from "./modules/contests/contestRoutes.js";
 import adminContestRoutes from "./modules/contests/adminContestRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
 import teamRoutes from "./modules/teams/teamRoutes.js";
+import publicTeamRoutes from "./modules/teams/publicTeamRoutes.js";
 import cricketFeedRoutes from "./routes/cricketFeedRoutes.js";
 
 import {
@@ -2041,7 +2042,8 @@ app.use(
 
 app.use("/api/notifications", authenticate, notificationRoutes);
 
-// The catalog is available only to authorized administrators.
+// Public pages can read the active catalog; writes remain admin-only.
+app.use("/api/teams", publicTeamRoutes);
 app.use("/api/admin/teams", authenticate, requireAdmin, teamRoutes);
 
 // Admin-only withdrawal management routes.
