@@ -1,0 +1,82 @@
+.cc-join-telegram {
+  position: fixed;
+  z-index: 40;
+  right: max(22px, env(safe-area-inset-right));
+  bottom: max(22px, env(safe-area-inset-bottom));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 46px;
+  padding: 0 17px;
+  border: 1px solid #168ac2;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #2aabee, #168ac2);
+  box-shadow: 0 8px 24px rgb(22 138 194 / 30%);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 750;
+  text-decoration: none;
+  transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.cc-join-telegram svg {
+  width: 19px;
+  height: 19px;
+  flex: none;
+  fill: currentColor;
+}
+
+.cc-join-telegram:hover {
+  transform: translateY(-2px);
+  background: linear-gradient(135deg, #39b5f4, #168ac2);
+  box-shadow: 0 11px 28px rgb(22 138 194 / 36%);
+}
+
+.cc-join-telegram:focus-visible {
+  outline: 3px solid #f2c35b;
+  outline-offset: 3px;
+}
+
+.landing-page main {
+  padding-bottom: 84px;
+}
+
+.landing-page .site-footer {
+  padding-bottom: 82px;
+}
+
+.cc-dashboard--telegram .cc-dashboard-body {
+  padding-bottom: 82px;
+}
+
+@media (max-width: 600px) {
+  .cc-join-telegram {
+    right: max(14px, env(safe-area-inset-right));
+    bottom: max(14px, env(safe-area-inset-bottom));
+    min-height: 42px;
+    gap: 7px;
+    padding: 0 13px;
+    font-size: 12px;
+  }
+
+  .cc-join-telegram svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  .landing-page main {
+    padding-bottom: 72px;
+  }
+
+  .landing-page .site-footer,
+  .cc-dashboard--telegram .cc-dashboard-body {
+    padding-bottom: 72px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cc-join-telegram {
+    transition: none;
+  }
+}

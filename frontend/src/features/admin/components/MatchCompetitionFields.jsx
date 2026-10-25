@@ -55,7 +55,7 @@ function competitionOptions(teams) {
     });
 }
 
-export default function MatchCompetitionFields({ form, setForm }) {
+export default function MatchCompetitionFields({ form, setForm, disabled = false }) {
   const [teams, setTeams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -170,7 +170,7 @@ export default function MatchCompetitionFields({ form, setForm }) {
           value={form.competition || ""}
           onChange={chooseCompetition}
           required
-          disabled={loading || !options.length}
+          disabled={disabled || loading || !options.length}
         >
           <option value="">{loading ? "Loading competitions…" : "Choose a competition"}</option>
           {competitionGroups.map(({ category, options: categoryOptions }) => (
@@ -192,7 +192,7 @@ export default function MatchCompetitionFields({ form, setForm }) {
           name="format"
           value={form.format}
           onChange={updateFormat}
-          disabled={!selectedCompetition}
+          disabled={disabled || !selectedCompetition}
           required
         >
           {(selectedCompetition?.formats || [form.format]).map((format) => (
@@ -202,12 +202,12 @@ export default function MatchCompetitionFields({ form, setForm }) {
       </label>
 
       <label className="admin-match-team-select">
-        Team A
+        {form.teamA || "First competing team"}
         <select
           name="teamA"
           value={form.teamA}
           onChange={updateTeam}
-          disabled={!selectedCompetition || loading}
+          disabled={disabled || !selectedCompetition || loading}
           required
         >
           <option value="">Select first team</option>
@@ -220,12 +220,12 @@ export default function MatchCompetitionFields({ form, setForm }) {
       </label>
 
       <label>
-        Team B
+        {form.teamB || "Second competing team"}
         <select
           name="teamB"
           value={form.teamB}
           onChange={updateTeam}
-          disabled={!selectedCompetition || loading}
+          disabled={disabled || !selectedCompetition || loading}
           required
         >
           <option value="">Select opposing team</option>

@@ -7,15 +7,19 @@ import {
 } from "react";
 import {
   Outlet,
+  useLocation,
 } from "react-router-dom";
 
 import { useAppSession } from "../../context/SessionContext";
 import DashboardSidebar from "./DashboardSidebar";
 import DashboardTopbar from "./DashboardTopbar";
 import { getMatches } from "../../services/matchService";
+import JoinTelegramButton from "../JoinTelegramButton";
 
 export default function DashboardLayout() {
   const { user } = useAppSession();
+  const { pathname } = useLocation();
+  const showJoinTelegram = pathname.replace(/\/$/, "") === "/dashboard";
 
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -134,7 +138,7 @@ export default function DashboardLayout() {
   }
 
   return (
-    <div className="cc-dashboard">
+    <div className={`cc-dashboard${showJoinTelegram ? " cc-dashboard--telegram" : ""}`}>
       <DashboardTopbar />
 
       <div className="cc-dashboard-body">
@@ -163,6 +167,7 @@ export default function DashboardLayout() {
           />
         </main>
       </div>
+      {showJoinTelegram && <JoinTelegramButton />}
     </div>
   );
 }

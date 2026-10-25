@@ -543,6 +543,57 @@
   background: #fafcfb;
 }
 
+.cc-wallet-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 24px 24px;
+}
+
+.cc-wallet-pagination button {
+  min-width: 38px;
+  min-height: 38px;
+  padding: 7px 11px;
+  border: 1px solid #d5dce5;
+  border-radius: 8px;
+  background: #fff;
+  color: #354156;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cc-wallet-pagination button:hover:not(:disabled) {
+  border-color: #16845b;
+  background: #f3faf6;
+}
+
+.cc-wallet-pagination button.active {
+  border-color: #137b54;
+  background: #137b54;
+  color: #fff;
+}
+
+.cc-wallet-pagination button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.cc-wallet-page-numbers {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.cc-wallet-pagination button:focus-visible {
+  outline: 3px solid #80c9a5;
+  outline-offset: 2px;
+}
+
 /* =========================================
    Withdrawal Status Labels
    ========================================= */
@@ -930,6 +981,17 @@
   .cc-wallet-history-accordion > .cc-wallet-empty,
   .cc-wallet-history-accordion > .cc-wallet-table-wrapper {
     margin: 16px;
+  }
+
+  .cc-wallet-pagination {
+    gap: 6px;
+    margin: 0 16px 16px;
+  }
+
+  .cc-wallet-pagination button {
+    min-width: 36px;
+    min-height: 36px;
+    padding: 6px 9px;
   }
 
   .cc-wallet-qr-container {

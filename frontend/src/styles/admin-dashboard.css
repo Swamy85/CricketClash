@@ -1628,6 +1628,10 @@
 }
 
 @media (max-width: 760px) {
+  .admin-dashboard-page {
+    min-width: 320px;
+  }
+
   .admin-sidebar-profile {
     position: absolute;
     top: 0;
@@ -1670,4 +1674,137 @@
     height: 28px;
     flex-shrink: 0;
   }
+}
+
+/* Admin dashboard refinements across laptop and phone widths */
+.admin-dashboard-content {
+  min-width: 0;
+}
+
+.admin-section-heading,
+.admin-panel-heading {
+  min-width: 0;
+}
+
+.admin-metric-card,
+.admin-panel,
+.admin-action-card {
+  min-width: 0;
+}
+
+.admin-table {
+  min-width: 390px;
+}
+
+@media (min-width: 1500px) {
+  .admin-dashboard-content {
+    padding-right: clamp(30px, 3vw, 54px);
+    padding-left: clamp(30px, 3vw, 54px);
+  }
+
+  .admin-metrics-grid { gap: 18px; }
+  .admin-bottom-grid { gap: 20px; }
+}
+
+@media (max-width: 1024px) and (min-width: 761px) {
+  .admin-sidebar {
+    flex-basis: 225px;
+    width: 225px;
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .admin-dashboard-content,
+  .admin-topbar {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+
+  .admin-welcome-banner { padding: 25px; }
+  .admin-bottom-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 760px) {
+  .admin-sidebar-brand > .cc-brand {
+    max-width: calc(100% - 90px);
+  }
+
+  .admin-sidebar-nav {
+    gap: 6px;
+    padding-bottom: 7px;
+  }
+
+  .admin-nav-item {
+    min-height: 42px;
+    border-radius: 9px;
+  }
+
+  .admin-dashboard-content {
+    padding: 16px 14px 24px;
+  }
+
+  .admin-breadcrumb { margin-bottom: 14px; }
+
+  .admin-welcome-banner {
+    min-height: 164px;
+    border-radius: 13px;
+  }
+
+  .admin-section-heading {
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 22px;
+  }
+
+  .admin-live-label { padding: 7px 9px; }
+
+  .admin-panel-heading {
+    align-items: flex-start;
+  }
+
+  .admin-table-wrapper {
+    margin-right: -2px;
+    padding-bottom: 3px;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  .admin-table th,
+  .admin-table td { padding-right: 9px; padding-left: 9px; }
+}
+
+@media (max-width: 480px) {
+  .admin-dashboard-content { padding-right: 11px; padding-left: 11px; }
+
+  .admin-welcome-banner {
+    min-height: 150px;
+    padding: 20px 16px;
+  }
+
+  .admin-welcome-copy h1 { font-size: 22px; }
+  .admin-welcome-copy p { max-width: 78%; }
+  .admin-stadium-art { right: -18%; width: 75%; opacity: 0.23; }
+  .admin-metrics-grid { gap: 8px; }
+
+  .admin-metric-card {
+    min-height: 112px;
+    padding: 12px;
+  }
+
+  .admin-metric-details p { font-size: 10px; }
+  .admin-metric-details > span { font-size: 9px; }
+  .admin-quick-actions,
+  .admin-bottom-grid { margin-top: 14px; }
+
+  .admin-panel { padding: 12px; border-radius: 11px; }
+  .admin-panel-heading { gap: 8px; margin-bottom: 12px; }
+  .admin-text-button { font-size: 10px; }
+  .admin-dashboard-footer { font-size: 9px; }
+}
+
+@media (max-width: 360px) {
+  .admin-metrics-grid { grid-template-columns: minmax(0, 1fr); }
+  .admin-metric-card { min-height: 88px; }
+  .admin-metric-details > span { font-size: 10px; }
+  .admin-welcome-copy p { max-width: 100%; }
 }

@@ -344,4 +344,5 @@ export async function settleMatchContests(matchOrId) {
   for (const contest of contests) {
     await settleContest(contest, match);
   }
+
 }

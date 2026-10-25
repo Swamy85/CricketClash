@@ -10,9 +10,9 @@ import {
   reconcilePendingContestEntries,
   recoverStaleContestPayments,
 } from "./contestPaymentRecoveryService.js";
-import { ensureUpcomingMatchQueues } from "./contestService.js";
 import { resumePendingMatchCorrections } from "../matches/matchCorrectionService.js";
 import { notifyUser } from "../../services/notificationService.js";
+import { announceMatchEvent } from "../../services/telegramNotificationService.js";
 
 const PROCESS_INTERVAL_MS = 10_000;
 
@@ -112,6 +112,7 @@ async function refundPlayer(contest, player, resultRevision = 0) {
         },
       }
     );
+
   } catch (error) {
     console.error(
       `Refund failed for contest ${current._id}, player ${currentPlayer.user}:`,
@@ -137,6 +138,100 @@ async function refundPlayer(contest, player, resultRevision = 0) {
     );
   }
 }
+
+export function createSingleParticipantRefundProcessor({
+  ContestModel = Contest,
+  reconcileEntries = reconcilePendingContestEntries,
+  refundEntry = refundPlayer,
+  sendNotification = notifyUser,
+  now = () => new Date(),
+} = {}) {
+  return async function processSingleParticipantRefund(contest, resultRevision = 0, { allowRetry = false } = {}) {
+    const processingTime = now();
+    const claimed = await ContestModel.updateOne(
+      {
+        _id: contest._id,
+        status: { $in: ["OPEN", "WAITING", "FULL"] },
+        expiresAt: { $lte: processingTime },
+        players: { $size: 1 },
+        settlementStatus: { $nin: ["SETTLED", "REFUNDED"] },
+        winnerId: null,
+      },
+      {
+        $set: {
+          status: "REFUNDED",
+          cancellationReason: "NO_OPPONENT",
+          settlementStatus: "REFUND_PROCESSING",
+        },
+        $unset: { activeQueueKey: "" },
+      }
+    );
+
+    // This compare-and-set closes the contest once. Refund retries only resume
+    // a previously closed no-opponent contest and still require one player.
+    let refundContest = claimed.modifiedCount === 1 ? contest : null;
+    if (!refundContest && allowRetry) {
+      const current = await ContestModel.findById(contest._id).lean();
+      if (
+        current?.status === "REFUNDED" &&
+        current.cancellationReason === "NO_OPPONENT" &&
+        ["REFUND_PROCESSING", "REFUND_REQUIRED"].includes(current.settlementStatus) &&
+        current.players.length === 1 &&
+        !current.winnerId
+      ) refundContest = current;
+    }
+    if (!refundContest) return false;
+
+    const reconciled = await reconcileEntries(refundContest);
+    if (!reconciled) {
+      await ContestModel.updateOne(
+        { _id: contest._id, status: "REFUNDED", cancellationReason: "NO_OPPONENT", settlementStatus: "REFUND_PROCESSING" },
+        { $set: { settlementStatus: "REFUND_REQUIRED" } }
+      );
+      return false;
+    }
+
+    for (const player of reconciled.players) {
+      await refundEntry(reconciled, player, resultRevision);
+    }
+
+    const latest = await ContestModel.findById(contest._id).lean();
+    // Send the notice before marking settlement complete. If notification
+    // delivery fails, the pending refund state remains eligible for retry.
+    try {
+      for (const player of latest?.players || []) {
+        if (player.entryPaymentStatus !== "REFUNDED") continue;
+        await sendNotification({
+          userId: player.user,
+          type: "REFUND_COMPLETED",
+          title: "Contest entry refunded",
+          message: `Your ${latest.tier} contest entry has been refunded.`,
+          reference: `contest-refund-notice:${latest._id}:${resultRevision ?? "deadline"}:${player.user}`,
+          contestId: latest._id,
+          matchId: latest.match,
+        });
+      }
+    } catch (error) {
+      console.error(`Refund notification failed for contest ${contest._id}:`, error.message);
+      return false;
+    }
+    const refundsComplete = latest?.players.every((player) =>
+      ["REFUNDED", "NOT_REQUIRED", "FAILED"].includes(player.entryPaymentStatus)
+    );
+    await ContestModel.updateOne(
+      { _id: contest._id, status: "REFUNDED", cancellationReason: "NO_OPPONENT", settlementStatus: { $in: ["REFUND_PROCESSING", "REFUND_REQUIRED"] } },
+      {
+        $set: {
+          settlementStatus: refundsComplete ? "REFUNDED" : "REFUND_REQUIRED",
+          ...(refundsComplete ? { settledAt: now() } : {}),
+        },
+      }
+    );
+    return Boolean(refundsComplete);
+  };
+}
+
+const processSingleParticipantRefund = createSingleParticipantRefundProcessor();
 
 async function processExpiredContest(contest) {
   const match = await Match.findById(contest.match).lean();
@@ -240,65 +335,9 @@ async function processExpiredContest(contest) {
     return;
   }
 
-  // One player: refund any confirmed paid entry.
-  await Contest.updateOne(
-    {
-      _id: contest._id,
-      status: { $in: ["OPEN", "WAITING"] },
-      expiresAt: { $lte: now },
-    },
-    {
-      $set: {
-        status: "REFUNDED",
-        cancellationReason: "NO_OPPONENT",
-        settlementStatus: "REFUND_PROCESSING",
-      },
-    }
-  );
-
-  const reconciled = await reconcilePendingContestEntries(contest);
-
-  if (!reconciled) {
-    await Contest.updateOne(
-      { _id: contest._id, status: "REFUNDED" },
-      { $set: { settlementStatus: "REFUND_REQUIRED" } }
-    );
-    return;
-  }
-
-  for (const player of reconciled.players) {
-    await refundPlayer(contest, player, match.resultRevision || 0);
-  }
-
-  const latest = await Contest.findById(contest._id).lean();
-
-  const allRefundsComplete = latest?.players.every(
-    (player) =>
-      player.entryPaymentStatus === "REFUNDED" ||
-      player.entryPaymentStatus === "NOT_REQUIRED" ||
-      player.entryPaymentStatus === "FAILED"
-  );
-
-  if (allRefundsComplete) {
-    await Contest.updateOne(
-      { _id: contest._id, status: "REFUNDED" },
-      {
-        $set: {
-          settlementStatus: "REFUNDED",
-          settledAt: new Date(),
-        },
-      }
-    );
-  } else {
-    await Contest.updateOne(
-      { _id: contest._id, status: "REFUNDED" },
-      {
-        $set: {
-          settlementStatus: "REFUND_REQUIRED",
-        },
-      }
-    );
-  }
+  // One-player contests close at their scheduled deadline, even if the match
+  // status update is delayed. The refund handler claims only a one-player row.
+  await processSingleParticipantRefund(contest, match.resultRevision || 0);
 }
 
 let intervalId = null;
@@ -376,6 +415,12 @@ export function startContestDeadlineProcessor() {
 
         if (transitioned.modifiedCount !== 1) continue;
 
+        void announceMatchEvent("MATCH_STARTED", match).catch((error) => {
+          console.error("Telegram match-start announcement failed.", {
+            code: String(error?.code || "TELEGRAM_ANNOUNCEMENT_FAILED").slice(0, 80),
+          });
+        });
+
         const contests = await Contest.find({ match: match._id })
           .select("players.user")
           .lean();
@@ -401,7 +446,6 @@ export function startContestDeadlineProcessor() {
 
       await recoverStaleContestPayments();
       await ensureMissingReplacementContests();
-      await ensureUpcomingMatchQueues();
       await resumePendingMatchCorrections();
 
       const finalMatches = await Match.find({
@@ -453,6 +497,11 @@ export function startContestDeadlineProcessor() {
         .lean();
 
       for (const contest of refundContests) {
+        if (contest.cancellationReason === "NO_OPPONENT" && contest.players.length === 1) {
+          await processSingleParticipantRefund(contest, 0, { allowRetry: true });
+          continue;
+        }
+
         const reconciled = await reconcilePendingContestEntries(contest);
         if (!reconciled) continue;
 

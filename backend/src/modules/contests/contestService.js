@@ -3,6 +3,8 @@ import mongoose from "mongoose";
 import Contest from "../../models/Contest.js";
 import Match from "../../models/Match.js";
 import User from "../../models/User.js";
+import WalletTransaction from "../../models/WalletTransaction.js";
+import PlatformLedgerEntry from "../../models/PlatformLedgerEntry.js";
 import { notifyUser, notifyUsers } from "../../services/notificationService.js";
 import { debitWallet } from "../wallet/walletService.js";
 import { selectVisibleOpenContests } from "./contestVisibility.js";
@@ -107,10 +109,12 @@ function publicContestQuery(now = new Date()) {
 // Contest listing
 // --------------------------------------------------
 
-export async function listOpenContests(now = new Date()) {
-  const contests = await Contest.find(publicContestQuery(now))
+export async function listOpenContests(now = new Date(), matchId) {
+  const query = publicContestQuery(now);
+  if (matchId) query.match = matchId;
+  const contests = await Contest.find(query)
     .select("-players.joinRequestId")
-    .populate("match", "competition teamA teamB format status startTime")
+    .populate("match", "competition teamA teamB format status result startTime")
     .populate("players.user", "userId")
     .sort({ createdAt: 1, _id: 1 })
     .lean();
@@ -124,22 +128,75 @@ export async function listMyContests(userId) {
 
   return Contest.find({ "players.user": userId })
     .select("-players.joinRequestId")
-    .populate("match", "teamA teamB format status result startTime")
+    .populate("match", "competition teamA teamB format status result startTime")
     .populate("players.user", "userId")
     .populate("winnerId", "userId")
     .sort({ createdAt: -1 })
     .lean();
 }
 
-export async function listAllContests() {
-  return Contest.find()
+export async function listAllContests({ page = 1, limit = 10, matchId, status, search = "", entryFee = "ALL" } = {}) {
+  const query = {};
+  if (matchId) query.match = matchId;
+  if (status && status !== "ALL") query.status = status;
+  if (entryFee !== "ALL") query.entryFee = Number(entryFee);
+  const terms = String(search || "").trim();
+  if (terms) {
+    const regex = new RegExp(terms.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    const matchingMatches = await Match.find({ $or: [
+      { teamA: regex }, { teamB: regex }, { title: regex }, { competition: regex },
+    ] }).distinct("_id");
+    const alternatives = [
+      { name: regex },
+      { tier: regex },
+      { $expr: { $regexMatch: { input: { $toString: "$_id" }, regex: regex.source, options: "i" } } },
+      ...(matchingMatches.length ? [{ match: { $in: matchingMatches } }] : []),
+    ];
+    query.$or = alternatives;
+  }
+  const [contests, total] = await Promise.all([
+    Contest.find(query)
     .select("-players.joinRequestId")
     .populate("match", "competition teamA teamB format status startTime")
-    .populate("players.user", "userId")
+    .populate("players.user", "userId username")
     .populate("createdBy", "userId username")
-    .populate("replacementContestId")
     .sort({ createdAt: -1 })
-    .lean();
+    .skip((page - 1) * limit)
+    .limit(limit)
+    .lean(),
+    Contest.countDocuments(query),
+  ]);
+  return { contests, total };
+}
+
+export async function getAdminContestCounts(now = new Date()) {
+  const [counts = {}] = await Contest.aggregate([
+    { $lookup: { from: Match.collection.name, localField: "match", foreignField: "_id", as: "matchRecord" } },
+    { $set: { matchRecord: { $first: "$matchRecord" } } },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: 1 },
+        upcoming: { $sum: { $cond: [{ $and: [
+          { $eq: ["$matchRecord.status", "upcoming"] },
+          { $gt: ["$matchRecord.startTime", now] },
+          { $in: ["$status", ["OPEN", "WAITING", "FULL"]] },
+        ] }, 1, 0] } },
+        open: { $sum: { $cond: [{ $in: ["$status", ["OPEN", "WAITING"]] }, 1, 0] } },
+        full: { $sum: { $cond: [{ $eq: ["$status", "FULL"] }, 1, 0] } },
+        live: { $sum: { $cond: [{ $or: [
+          { $eq: ["$status", "LOCKED"] },
+          { $and: [
+            { $eq: ["$matchRecord.status", "live"] },
+            { $in: ["$status", ["FULL", "LOCKED"]] },
+          ] },
+        ] }, 1, 0] } },
+        completed: { $sum: { $cond: [{ $eq: ["$status", "COMPLETED"] }, 1, 0] } },
+      },
+    },
+    { $project: { _id: 0, total: 1, upcoming: 1, open: 1, live: 1, completed: 1 } },
+  ]);
+  return { total: 0, upcoming: 0, open: 0, full: 0, live: 0, completed: 0, ...counts };
 }
 
 export async function listLeaderboard(limit) {
@@ -203,7 +260,7 @@ export async function listLeaderboard(limit) {
 // Contest creation
 // --------------------------------------------------
 
-export async function createContest({ matchId, tier, createdBy, session }) {
+export async function createContest({ matchId, tier, name = "", createdBy, session }) {
   const match = await getJoinableMatch(matchId, session);
 
   if (!Object.hasOwn(CONTEST_TIERS, tier)) {
@@ -230,6 +287,13 @@ export async function createContest({ matchId, tier, createdBy, session }) {
   const activeContest = await activeContestQuery.lean();
 
   if (activeContest) {
+    if (name.trim() && name.trim() !== activeContest.name) {
+      return Contest.findOneAndUpdate(
+        { _id: activeContest._id, status: "OPEN", "players.0": { $exists: false } },
+        { $set: { name: name.trim() } },
+        { new: true, runValidators: true }
+      );
+    }
     return activeContest;
   }
 
@@ -241,6 +305,8 @@ export async function createContest({ matchId, tier, createdBy, session }) {
     const contestData = {
       match: match._id,
       tier,
+      name: name.trim() || `${tier} Head-to-Head`,
+      creationMethod: "MANUAL",
       entryFee: config.entryFee,
       prizePool: config.prizePool,
       platformFeePercentage: PLATFORM_FEE_PERCENTAGE,
@@ -277,10 +343,83 @@ export async function createContest({ matchId, tier, createdBy, session }) {
   }
 }
 
+export async function editContest(contestId, { matchId, tier, name }) {
+  if (!isValidId(contestId)) throw makeError("Invalid contest ID.");
+  const current = await Contest.findById(contestId).lean();
+  if (!current) throw makeError("Contest not found.", 404);
+  if (current.status !== "OPEN" || current.players.length !== 0 || current.settlementStatus !== "NOT_READY") {
+    throw makeError("Only empty open contests can be edited. Cancel active contests to protect joined players.", 409);
+  }
+  const [walletActivity, platformActivity] = await Promise.all([
+    WalletTransaction.exists({ contest: contestId }),
+    PlatformLedgerEntry.exists({ contest: contestId }),
+  ]);
+  if (walletActivity || platformActivity) {
+    throw makeError("This contest has financial ledger activity and cannot be edited.", 409);
+  }
+
+  const nextMatchId = matchId || String(current.match);
+  const nextTier = tier || current.tier;
+  if (!Object.hasOwn(CONTEST_TIERS, nextTier)) throw makeError("Invalid contest tier.");
+  const match = await getJoinableMatch(nextMatchId);
+  const config = CONTEST_TIERS[nextTier];
+  const { platformFee, winnerPayout } = getFinancials(config.prizePool);
+  try {
+    const contest = await Contest.findOneAndUpdate(
+      { _id: contestId, status: "OPEN", "players.0": { $exists: false }, settlementStatus: "NOT_READY" },
+      { $set: {
+        match: match._id,
+        tier: nextTier,
+        name: name === undefined ? current.name : name.trim(),
+        entryFee: config.entryFee,
+        prizePool: config.prizePool,
+        platformFeePercentage: PLATFORM_FEE_PERCENTAGE,
+        platformFee,
+        winnerPayout,
+        expiresAt: match.startTime,
+        activeQueueKey: `${match._id}:${nextTier}`,
+      } },
+      { new: true, runValidators: true }
+    );
+    if (!contest) throw makeError("Contest changed while it was being edited. Refresh and try again.", 409);
+    return contest;
+  } catch (error) {
+    if (error.code === 11000) throw makeError("An open contest already exists for this match and tier.", 409);
+    throw error;
+  }
+}
+
+export async function deleteEmptyContest(contestId) {
+  if (!isValidId(contestId)) throw makeError("Invalid contest ID.");
+  const current = await Contest.findById(contestId).lean();
+  if (!current) throw makeError("Contest not found.", 404);
+  if (current.status !== "OPEN" || current.players.length !== 0 || current.settlementStatus !== "NOT_READY") {
+    throw makeError("Only empty open contests with no settlement activity can be deleted. Cancel active contests to protect joined players.", 409);
+  }
+  const [walletActivity, platformActivity] = await Promise.all([
+    WalletTransaction.exists({ contest: contestId }),
+    PlatformLedgerEntry.exists({ contest: contestId }),
+  ]);
+  if (walletActivity || platformActivity) throw makeError("This contest has financial ledger activity and cannot be deleted.", 409);
+  const deleted = await Contest.findOneAndDelete({
+    _id: contestId,
+    status: "OPEN",
+    "players.0": { $exists: false },
+    settlementStatus: "NOT_READY",
+  });
+  if (!deleted) throw makeError("Contest changed while it was being deleted. Refresh and try again.", 409);
+}
+
 // Keep one empty contest available for every upcoming match and tier. A
 // waiting contest is a player's existing entry; it must not consume the next
 // entry opportunity for that tier.
 async function ensureOpenContestQueue(match, tier, createdBy, session) {
+  if (match.automaticContestGeneration === false) return null;
+  const configuredTiers = Array.isArray(match.automaticContestTiers)
+    ? match.automaticContestTiers
+    : Object.keys(CONTEST_TIERS);
+  if (!configuredTiers.includes(tier)) return null;
+
   const now = new Date();
   const config = CONTEST_TIERS[tier];
   const query = {
@@ -302,6 +441,8 @@ async function ensureOpenContestQueue(match, tier, createdBy, session) {
     const contestData = {
       match: match._id,
       tier,
+      name: `${tier} Head-to-Head`,
+      creationMethod: "AUTOMATIC",
       entryFee: config.entryFee,
       prizePool: config.prizePool,
       platformFeePercentage: PLATFORM_FEE_PERCENTAGE,
@@ -329,6 +470,7 @@ async function ensureOpenContestQueue(match, tier, createdBy, session) {
 
 export async function ensureMatchContestQueues(matchId, createdBy, session) {
   const match = await getJoinableMatch(matchId, session);
+  if (match.automaticContestGeneration === false) return;
   let creatorId = createdBy || match.createdBy;
 
   if (!isValidId(creatorId)) {
@@ -342,7 +484,10 @@ export async function ensureMatchContestQueues(matchId, createdBy, session) {
     throw makeError("A valid contest queue creator is required.", 500);
   }
 
-  for (const tier of Object.keys(CONTEST_TIERS)) {
+  const configuredTiers = Array.isArray(match.automaticContestTiers)
+    ? match.automaticContestTiers
+    : Object.keys(CONTEST_TIERS);
+  for (const tier of configuredTiers) {
     await ensureOpenContestQueue(match, tier, creatorId, session);
   }
 }
@@ -350,9 +495,10 @@ export async function ensureMatchContestQueues(matchId, createdBy, session) {
 export async function ensureUpcomingMatchQueues() {
   const matches = await Match.find({
     status: "upcoming",
+    automaticContestGeneration: { $ne: false },
     startTime: { $gt: new Date() },
   })
-    .select("_id createdBy")
+    .select("_id createdBy automaticContestGeneration automaticContestTiers")
     .lean();
 
   const fallbackAdmin = await User.findOne({ role: "admin" }).select("_id").lean();
@@ -366,7 +512,10 @@ export async function ensureUpcomingMatchQueues() {
     }
 
     try {
-      for (const tier of Object.keys(CONTEST_TIERS)) {
+      const configuredTiers = Array.isArray(match.automaticContestTiers)
+        ? match.automaticContestTiers
+        : Object.keys(CONTEST_TIERS);
+      for (const tier of configuredTiers) {
         await ensureOpenContestQueue(match, tier, creatorId);
       }
     } catch (error) {
@@ -416,7 +565,9 @@ async function reserveContestSlot({
   const now = new Date();
   let contest = await Contest.findOne({ match: match._id, tier, status: { $in: ["OPEN", "WAITING"] }, expiresAt: { $gt: now } }).sort({ createdAt: 1, _id: 1 }).lean();
   if (!contest) {
-    await ensureMatchContestQueues(match._id);
+    if (match.automaticContestGeneration !== false) {
+      await ensureMatchContestQueues(match._id);
+    }
     contest = await Contest.findOne({ match: match._id, tier, status: { $in: ["OPEN", "WAITING"] }, expiresAt: { $gt: new Date() } }).sort({ createdAt: 1, _id: 1 }).lean();
   }
   if (!contest) throw makeError("No contest queue is available for this match and tier.", 409);
@@ -457,7 +608,9 @@ async function reserveContestSlot({
   if (!reserved) {
     // Keep the one shared empty queue replenished even if the lobby was
     // opened before the scheduler's next pass.
-    await ensureOpenContestQueue(match, contest.tier, contest.createdBy);
+    if (match.automaticContestGeneration !== false) {
+      await ensureOpenContestQueue(match, contest.tier, contest.createdBy);
+    }
     try { reserved = await Contest.findOneAndUpdate(
       buildEmptyContestQuery({ matchId: contest.match, tier: contest.tier, entryFee: config.entryFee, prizePool: config.prizePool, userId, now }),
       {
@@ -632,6 +785,8 @@ async function ensureReplacementContest(contestId) {
       if (
         !match ||
         match.status !== "upcoming" ||
+        match.automaticContestGeneration === false ||
+        (Array.isArray(match.automaticContestTiers) && !match.automaticContestTiers.includes(original.tier)) ||
         new Date(match.startTime) <= new Date()
       ) {
         return;
@@ -682,6 +837,8 @@ async function ensureReplacementContest(contestId) {
           {
             match: original.match,
             tier: original.tier,
+            name: `${original.tier} Head-to-Head`,
+            creationMethod: "AUTOMATIC",
             entryFee: original.entryFee,
             prizePool: original.prizePool,
             platformFeePercentage: original.platformFeePercentage,
@@ -837,7 +994,7 @@ export async function joinContest({
   // other users even while this entry waits for an opponent.
   try {
     const queueMatch = await Match.findById(updated.match)
-      .select("_id startTime status")
+      .select("_id startTime status automaticContestGeneration automaticContestTiers")
       .lean();
     if (queueMatch?.status === "upcoming" && new Date(queueMatch.startTime) > new Date()) {
       await ensureOpenContestQueue(queueMatch, updated.tier, updated.createdBy);

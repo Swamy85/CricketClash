@@ -105,6 +105,7 @@ export default function LoginPage() {
   }
 
   const logoutReason = new URLSearchParams(location.search).get("reason");
+  const passwordReset = new URLSearchParams(location.search).get("passwordReset") === "success";
   const sessionExpired = ["timeout", "expired"].includes(logoutReason);
 
   return (
@@ -201,6 +202,12 @@ export default function LoginPage() {
           {location.state?.verified && (
             <div className="auth-success">
               Email verified successfully! You can now log in.
+            </div>
+          )}
+
+          {(location.state?.passwordReset || passwordReset) && (
+            <div className="auth-success" role="status">
+              Password reset successfully. Log in with your new password.
             </div>
           )}
 

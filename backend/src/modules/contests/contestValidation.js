@@ -43,7 +43,7 @@ export const CONTEST_TIERS = Object.freeze({
 export const PLATFORM_FEE_PERCENTAGE = 10;
 
 // Validate contest creation.
-// The client supplies only matchId and tier.
+// The client selects an existing match and fixed business-rule tier.
 // The backend derives all monetary configuration.
 export function validateCreateContest(input) {
   const errors = [];
@@ -55,9 +55,10 @@ export function validateCreateContest(input) {
     };
   }
 
-  errors.push(...unexpectedFields(input, ["matchId", "tier"]));
+  errors.push(...unexpectedFields(input, ["matchId", "tier", "name"]));
 
   const { matchId, tier } = input;
+  const name = input.name === undefined ? "" : input.name;
 
   if (
     typeof matchId !== "string" ||
@@ -72,6 +73,10 @@ export function validateCreateContest(input) {
     );
   }
 
+  if (typeof name !== "string" || name.trim().length > 80) {
+    errors.push("Contest name must be text of at most 80 characters.");
+  }
+
   if (errors.length > 0) {
     return { valid: false, errors };
   }
@@ -82,10 +87,31 @@ export function validateCreateContest(input) {
     data: {
       matchId,
       tier,
+      name: name.trim(),
       ...CONTEST_TIERS[tier],
       platformFeePercentage: PLATFORM_FEE_PERCENTAGE,
     },
   };
+}
+
+export function validateEditContest(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { valid: false, errors: ["Request body must be a valid object."] };
+  }
+  const errors = unexpectedFields(input, ["matchId", "tier", "name"]);
+  if (!Object.keys(input).length) errors.push("Provide at least one contest field to update.");
+  if (input.matchId !== undefined && (typeof input.matchId !== "string" || !mongoose.isValidObjectId(input.matchId))) {
+    errors.push("A valid matchId is required.");
+  }
+  if (input.tier !== undefined && (typeof input.tier !== "string" || !Object.hasOwn(CONTEST_TIERS, input.tier))) {
+    errors.push(`Invalid contest tier. Allowed tiers: ${Object.keys(CONTEST_TIERS).join(", ")}.`);
+  }
+  if (input.name !== undefined && (typeof input.name !== "string" || !input.name.trim() || input.name.trim().length > 80)) {
+    errors.push("Contest name is required and must be at most 80 characters.");
+  }
+  return errors.length
+    ? { valid: false, errors }
+    : { valid: true, errors: [], data: input };
 }
 
 // Validate a player's team selection before attempting to join.

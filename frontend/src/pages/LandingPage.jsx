@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import Header from "../components/Header";
 import Footer from "../components/Footer";
+import JoinTelegramButton from "../components/JoinTelegramButton";
 import { getMatches, getTeamCatalog } from "../services/matchService";
 import { formatIndiaDateTime } from "../utils/dateTime";
 
@@ -599,6 +600,7 @@ export default function LandingPage() {
       </main>
 
       <Footer />
+      <JoinTelegramButton />
     </div>
   );
 }

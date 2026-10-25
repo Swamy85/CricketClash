@@ -52,6 +52,7 @@ import notificationRoutes from "./routes/notificationRoutes.js";
 import teamRoutes from "./modules/teams/teamRoutes.js";
 import publicTeamRoutes from "./modules/teams/publicTeamRoutes.js";
 import cricketFeedRoutes from "./routes/cricketFeedRoutes.js";
+import adminTelegramRoutes from "./routes/adminTelegramRoutes.js";
 
 import {
   createLoginSession,
@@ -2041,6 +2042,7 @@ app.use(
 );
 
 app.use("/api/notifications", authenticate, notificationRoutes);
+app.use("/api/admin/telegram", authenticate, requireAdmin, adminTelegramRoutes);
 
 // Public pages can read the active catalog; writes remain admin-only.
 app.use("/api/teams", publicTeamRoutes);

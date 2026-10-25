@@ -1,7 +1,26 @@
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useOutletContext, useNavigate } from "react-router-dom";
+import { getTeamCatalog } from "../../../services/matchService";
+import { fetchContestPageData } from "../contests/contestPageApi.js";
 import { MatchCard } from "../matches/MatchCard";
+
+function normalizeTeamName(value) {
+  return String(value || "").replace(/\s*\[[A-Z0-9]{2,8}\]\s*$/, "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function findProviderFixture(match, providerMatches) {
+  const teamA = normalizeTeamName(match.teamA);
+  const teamB = normalizeTeamName(match.teamB);
+  const matches = providerMatches.filter((provider) => {
+    const providerA = normalizeTeamName(provider.teamA);
+    const providerB = normalizeTeamName(provider.teamB);
+    return (providerA === teamA && providerB === teamB) || (providerA === teamB && providerB === teamA);
+  });
+  if (!matches.length) return null;
+  const matchTime = new Date(match.startTime || 0).getTime();
+  return matches.sort((left, right) => Math.abs(new Date(left.startTime || 0).getTime() - matchTime) - Math.abs(new Date(right.startTime || 0).getTime() - matchTime))[0];
+}
 
 export default function LobbyPage() {
   const {
@@ -17,13 +36,43 @@ export default function LobbyPage() {
   const navigate = useNavigate();
   const username = user?.username || "Player";
   const [now, setNow] = useState(Date.now());
+  const [teams, setTeams] = useState([]);
+  const [providerMatches, setProviderMatches] = useState([]);
+  const matchesScrollerRef = useRef(null);
+
+  function scrollMatches(direction) {
+    const scroller = matchesScrollerRef.current;
+    if (scroller) scroller.scrollBy({ left: direction * Math.max(scroller.clientWidth * 0.82, 280), behavior: "smooth" });
+  }
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
 
-  const availableMatches = matches.filter((match) => {
+  useEffect(() => {
+    const controller = new AbortController();
+    void getTeamCatalog({ signal: controller.signal }).then(setTeams).catch(() => {});
+    void fetchContestPageData("/cricket-feed", controller.signal)
+      .then(({ feed }) => setProviderMatches(Array.isArray(feed?.matches) ? feed.matches : []))
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
+
+  const availableMatches = matches.map((match) => {
+    const fixture = findProviderFixture(match, providerMatches);
+    if (!fixture) return match;
+    const sameOrder = normalizeTeamName(fixture.teamA) === normalizeTeamName(match.teamA);
+    return {
+      ...match,
+      competition: fixture.series || match.competition,
+      format: fixture.format || match.format,
+      startTime: fixture.startTime || match.startTime,
+      venue: match.venue || fixture.venue,
+      teamALogo: match.teamALogo || (sameOrder ? fixture.teamALogo : fixture.teamBLogo),
+      teamBLogo: match.teamBLogo || (sameOrder ? fixture.teamBLogo : fixture.teamALogo),
+    };
+  }).filter((match) => {
     const startTime = new Date(match.startTime).getTime();
     return (
       String(match.status || "").toLowerCase() === "upcoming" &&
@@ -164,10 +213,16 @@ export default function LobbyPage() {
             </button>
           </div>
         ) : (
-          <div className="cc-match-grid">
-            {availableMatches.slice(0, 3).map((match) => (
-              <MatchCard key={match._id} match={match} />
+          <div className="cc-lobby-match-carousel">
+            <div className="cc-lobby-match-controls" aria-label="Lobby match carousel controls">
+              <button type="button" aria-label="Scroll matches left" onClick={() => scrollMatches(-1)}>‹</button>
+              <button type="button" aria-label="Scroll matches right" onClick={() => scrollMatches(1)}>›</button>
+            </div>
+            <div className="cc-match-grid" ref={matchesScrollerRef} tabIndex={0} aria-label="Upcoming matches">
+            {availableMatches.map((match) => (
+              <MatchCard key={match._id} match={match} teams={teams} />
             ))}
+            </div>
           </div>
         )}
       </section>

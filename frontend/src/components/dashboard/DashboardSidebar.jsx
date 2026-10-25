@@ -3,7 +3,6 @@ import { NavLink } from "react-router-dom";
 
 const links = [
   { to: "/dashboard", label: "Lobby", icon: "⌂", end: true },
-  { to: "/dashboard/live-center", label: "Live Match Center", icon: "●" },
   { to: "/dashboard/matches", label: "Matches", icon: "🏏" },
   { to: "/dashboard/contests", label: "My Contests", icon: "⚔" },
   { to: "/dashboard/wallet", label: "Wallet", icon: "₹" },

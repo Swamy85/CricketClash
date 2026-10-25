@@ -5,6 +5,35 @@ import Contest from "../../models/Contest.js";
 import Team from "../../models/Team.js";
 import { settleMatchContests } from "../contests/contestSettlementService.js";
 import { ensureMatchContestQueues } from "../contests/contestService.js";
+import { announceMatchEvent } from "../../services/telegramNotificationService.js";
+
+const DEFAULT_CONTEST_TIERS = ["FREE", "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND", "ELITE", "CHAMPION"];
+
+function sameMatchCreationRequest(match, payload) {
+  const expectedTitle = payload.title?.trim() || `${payload.teamA.trim()} vs ${payload.teamB.trim()}`;
+  const expectedTiers = payload.automaticContestTiers || DEFAULT_CONTEST_TIERS;
+  return match.competition === payload.competition.trim()
+    && match.title === expectedTitle
+    && match.imageUrl === (payload.imageUrl?.trim() || "")
+    && match.teamA === payload.teamA.trim()
+    && match.teamB === payload.teamB.trim()
+    && match.format === (payload.format || "T20")
+    && match.status === (payload.status || "upcoming")
+    && match.result === (payload.status === "cancelled" ? "cancelled" : payload.status === "abandoned" ? "abandoned" : payload.result || null)
+    && new Date(match.startTime).getTime() === new Date(payload.startTime).getTime()
+    && match.automaticContestGeneration === (payload.automaticContestGeneration !== false)
+    && JSON.stringify(match.automaticContestTiers || DEFAULT_CONTEST_TIERS) === JSON.stringify(expectedTiers);
+}
+
+async function publishMatchEvent(event, match, options) {
+  try {
+    await announceMatchEvent(event, match, options);
+  } catch (error) {
+    console.error(`Telegram ${event.toLowerCase()} announcement failed.`, {
+      code: String(error?.code || "TELEGRAM_ANNOUNCEMENT_FAILED").slice(0, 80),
+    });
+  }
+}
 
 async function validateCompetitionTeams({ competition, teamA, teamB, format }) {
   const teams = await Team.find({
@@ -34,7 +63,7 @@ async function validateCompetitionTeams({ competition, teamA, teamB, format }) {
 
 export async function listMatches() {
   return Match.find()
-    .select("-createdBy -pendingResultCorrection")
+    .select("-createdBy -pendingResultCorrection -automaticContestGeneration -automaticContestTiers -creationRequestId")
     .sort({ startTime: 1 })
     .limit(100)
     .lean();
@@ -47,6 +76,16 @@ export async function listAdminMatches({ recent = false, limit = 100 } = {}) {
     .lean();
 }
 
+export async function getAdminMatchCounts() {
+  const [total, upcoming, live, completed] = await Promise.all([
+    Match.countDocuments({}),
+    Match.countDocuments({ status: "upcoming" }),
+    Match.countDocuments({ status: "live" }),
+    Match.countDocuments({ status: "completed" }),
+  ]);
+  return { total, upcoming, live, completed };
+}
+
 export async function getMatchById(id) {
   if (!mongoose.isValidObjectId(id)) {
     const error = new Error("Invalid match ID.");
@@ -55,7 +94,7 @@ export async function getMatchById(id) {
   }
 
   const match = await Match.findById(id)
-    .select("-createdBy -pendingResultCorrection")
+    .select("-createdBy -pendingResultCorrection -automaticContestGeneration -automaticContestTiers -creationRequestId")
     .lean();
 
   if (!match) {
@@ -68,6 +107,18 @@ export async function getMatchById(id) {
 }
 
 export async function createMatch(payload, createdBy) {
+  if (payload.creationRequestId) {
+    const existingRequest = await Match.findOne({ creationRequestId: payload.creationRequestId }).lean();
+    if (existingRequest) {
+      if (!sameMatchCreationRequest(existingRequest, payload)) {
+        const error = new Error("This match creation request ID was already used with different match details.");
+        error.status = 409;
+        throw error;
+      }
+      return existingRequest;
+    }
+  }
+
   if (
     payload.status === "completed" &&
     !["teamA", "teamB", "tie", "no_result"].includes(payload.result)
@@ -92,6 +143,11 @@ export async function createMatch(payload, createdBy) {
       [match] = await Match.create(
         [{
           competition: payload.competition.trim(),
+          title: payload.title?.trim() || `${payload.teamA.trim()} vs ${payload.teamB.trim()}`,
+          imageUrl: payload.imageUrl?.trim() || "",
+          creationRequestId: payload.creationRequestId,
+          automaticContestGeneration: payload.automaticContestGeneration !== false,
+          automaticContestTiers: payload.automaticContestTiers || undefined,
           teamA: payload.teamA.trim(),
           teamB: payload.teamB.trim(),
           format: payload.format || "T20",
@@ -107,16 +163,40 @@ export async function createMatch(payload, createdBy) {
         }],
         { session }
       );
-
-      if (
-        match.status === "upcoming" &&
-        new Date(match.startTime).getTime() > Date.now()
-      ) {
-        await ensureMatchContestQueues(String(match._id), createdBy, session);
+      if (match.status === "upcoming" && new Date(match.startTime).getTime() > Date.now()) {
+        await ensureMatchContestQueues(String(match._id), match.createdBy, session);
       }
     });
+  } catch (error) {
+    if (error.code === 11000 && payload.creationRequestId) {
+      const existingRequest = await Match.findOne({ creationRequestId: payload.creationRequestId }).lean();
+      if (existingRequest) {
+        if (!sameMatchCreationRequest(existingRequest, payload)) {
+          const conflict = new Error("This match creation request ID was already used with different match details.");
+          conflict.status = 409;
+          throw conflict;
+        }
+        match = existingRequest;
+      } else {
+        throw error;
+      }
+    } else {
+      throw error;
+    }
   } finally {
     await session.endSession();
+  }
+
+  if (match.status === "upcoming") {
+    const contestCount = await Contest.countDocuments({
+      match: match._id,
+      status: { $in: ["OPEN", "WAITING"] },
+      expiresAt: { $gt: new Date() },
+    }).catch(() => 0);
+    await Promise.all([
+      publishMatchEvent("UPCOMING_FIXTURE", match),
+      publishMatchEvent("CONTESTS_AVAILABLE", match, { contestCount }),
+    ]);
   }
 
   return match;
@@ -173,6 +253,15 @@ export async function updateMatch(id, payload) {
 
   if (payload.competition !== undefined) {
     updates.competition = payload.competition.trim();
+  }
+
+  if (payload.title !== undefined) updates.title = payload.title.trim();
+  if (payload.imageUrl !== undefined) updates.imageUrl = payload.imageUrl.trim();
+  if (payload.automaticContestGeneration !== undefined) {
+    updates.automaticContestGeneration = payload.automaticContestGeneration;
+  }
+  if (payload.automaticContestTiers !== undefined) {
+    updates.automaticContestTiers = payload.automaticContestTiers;
   }
 
   for (const field of ["teamA", "teamB"]) {
@@ -299,12 +388,23 @@ export async function updateMatch(id, payload) {
       }
     );
 
-    if (new Date(match.startTime).getTime() > Date.now()) {
-      await ensureMatchContestQueues(String(match._id), match.createdBy);
-    }
+  }
+
+  if (
+    match.status === "upcoming"
+    && match.automaticContestGeneration !== false
+    && new Date(match.startTime).getTime() > Date.now()
+    && (
+      startTimeChanged
+      || (payload.automaticContestGeneration === true && existing.automaticContestGeneration === false)
+      || payload.automaticContestTiers !== undefined
+    )
+  ) {
+    await ensureMatchContestQueues(String(match._id), match.createdBy);
   }
 
   if (match.status === "live" && existing.status !== "live") {
+    await publishMatchEvent("MATCH_STARTED", match);
     await Contest.updateMany(
       { match: match._id, status: "FULL" },
       {
@@ -340,6 +440,14 @@ export async function updateMatch(id, payload) {
         }
       );
     }
+  }
+
+  if (
+    match.status === "completed" &&
+    match.result &&
+    (existing.status !== "completed" || existing.result !== match.result)
+  ) {
+    await publishMatchEvent("VERIFIED_RESULT", match);
   }
 
   return match;

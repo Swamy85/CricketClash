@@ -5,6 +5,8 @@ import { jsonBodyParser, parseBoundedInteger, rejectUnsafeRequestKeys, unexpecte
 import { validateCreateContest, validateJoinContest } from "../src/modules/contests/contestValidation.js";
 import { validateMatch } from "../src/modules/matches/matchValidation.js";
 import { DEPOSIT_UPLOAD_LIMITS } from "../src/modules/wallet/depositUpload.js";
+import Match from "../src/models/Match.js";
+import Contest from "../src/models/Contest.js";
 
 function invokeSafety(req) {
   const res = {
@@ -51,8 +53,43 @@ test("contest and match validators accept existing payloads and reject malformed
     startTime: "2027-01-01T12:00:00.000Z",
   };
   assert.deepEqual(validateMatch(validMatch), []);
+  assert.deepEqual(validateMatch({
+    ...validMatch,
+    automaticContestGeneration: true,
+    automaticContestTiers: ["FREE", "BRONZE"],
+    creationRequestId: "match_creation_request_12345",
+  }), []);
+  assert.deepEqual(validateMatch({
+    ...validMatch,
+    automaticContestGeneration: false,
+    automaticContestTiers: [],
+  }), []);
+  assert.ok(validateMatch({
+    ...validMatch,
+    automaticContestGeneration: true,
+    automaticContestTiers: [],
+  }).length > 0);
+  assert.ok(validateMatch({
+    ...validMatch,
+    automaticContestTiers: ["UNSUPPORTED"],
+  }).length > 0);
+  assert.ok(validateMatch({ ...validMatch, creationRequestId: "short" }).length > 0);
+  assert.ok(validateMatch({ ...validMatch, creationRequestId: "match_creation_request_12345" }, { partial: true }).length > 0);
   assert.ok(validateMatch({ ...validMatch, $set: { status: "completed" } }).length > 0);
   assert.ok(validateMatch({ ...validMatch, status: { $ne: "live" } }).length > 0);
+});
+
+test("matches default to automatic head-to-head templates and contests record their creation method", () => {
+  const match = new Match({
+    competition: "Premier League",
+    teamA: "Falcons",
+    teamB: "Tigers",
+    startTime: new Date("2027-01-01T12:00:00.000Z"),
+  });
+  const contest = new Contest({ match: match._id, tier: "BRONZE", entryFee: 50, prizePool: 100, expiresAt: match.startTime, createdBy: match._id });
+  assert.equal(match.automaticContestGeneration, true);
+  assert.deepEqual(match.automaticContestTiers, ["FREE", "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND", "ELITE", "CHAMPION"]);
+  assert.equal(contest.creationMethod, "MANUAL");
 });
 
 test("unexpected field and bounded integer helpers reject unsafe query shapes", () => {

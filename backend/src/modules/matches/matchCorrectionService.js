@@ -7,6 +7,7 @@ import Wallet from "../../models/Wallet.js";
 import { settleMatchContests } from "../contests/contestSettlementService.js";
 import { notifyUser } from "../../services/notificationService.js";
 import { formatMatchResult } from "../../services/matchResultLabel.js";
+import { announceMatchEvent } from "../../services/telegramNotificationService.js";
 
 const REFUND_RESULTS = new Set(["tie", "no_result"]);
 
@@ -307,6 +308,13 @@ async function processCorrection(matchId) {
 
     const updatedMatch = await Match.findById(claimed._id).lean();
     await settleMatchContests(updatedMatch);
+    try {
+      await announceMatchEvent("VERIFIED_RESULT", updatedMatch);
+    } catch (error) {
+      console.error("Telegram corrected-result announcement failed.", {
+        code: String(error?.code || "TELEGRAM_ANNOUNCEMENT_FAILED").slice(0, 80),
+      });
+    }
 
     const reversals = await WalletTransaction.find({
       initiatedBy: pending.admin,

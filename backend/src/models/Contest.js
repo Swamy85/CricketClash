@@ -89,6 +89,21 @@ const contestSchema = new Schema(
       default: "FREE",
     },
 
+    name: {
+      type: String,
+      trim: true,
+      maxlength: 80,
+      default: "",
+    },
+
+    creationMethod: {
+      type: String,
+      enum: ["AUTOMATIC", "MANUAL"],
+      default: "MANUAL",
+      required: true,
+      index: true,
+    },
+
     // Entry fee per player. Amounts are configuration values.
     entryFee: {
       type: Number,

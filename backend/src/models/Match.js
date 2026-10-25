@@ -1,11 +1,48 @@
 import mongoose from "mongoose";
 
+const CONTEST_TIERS = ["FREE", "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND", "ELITE", "CHAMPION"];
+
 const matchSchema = new mongoose.Schema(
   {
     competition: {
       type: String,
       trim: true,
       maxlength: 100,
+    },
+
+    title: {
+      type: String,
+      trim: true,
+      maxlength: 140,
+      default: "",
+    },
+
+    imageUrl: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: "",
+    },
+
+    creationRequestId: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+      default: undefined,
+    },
+
+    automaticContestGeneration: {
+      type: Boolean,
+      default: true,
+    },
+
+    automaticContestTiers: {
+      type: [{ type: String, enum: CONTEST_TIERS }],
+      default: () => [...CONTEST_TIERS],
+      validate: {
+        validator: (tiers) => Array.isArray(tiers) && new Set(tiers).size === tiers.length,
+        message: "Automatic contest templates must be unique.",
+      },
     },
 
     teamA: {
@@ -84,6 +121,13 @@ const matchSchema = new mongoose.Schema(
 );
 
 matchSchema.index({ status: 1, startTime: 1 });
+matchSchema.index(
+  { creationRequestId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { creationRequestId: { $type: "string" } },
+  }
+);
 
 const Match = mongoose.model("Match", matchSchema);
 

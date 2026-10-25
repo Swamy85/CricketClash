@@ -9,6 +9,28 @@ export default function DashboardTopbar() {
   const [notifications, setNotifications] = useState([]);
   const [open, setOpen] = useState(false);
   const requestRef = useRef(null);
+  const notificationMenuRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    function handlePointerDown(event) {
+      if (!notificationMenuRef.current?.contains(event.target)) {
+        setOpen(false);
+      }
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") setOpen(false);
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
 
   const loadNotifications = useCallback(async () => {
     if (requestRef.current) return;
@@ -100,7 +122,7 @@ export default function DashboardTopbar() {
         Player lobby
       </div>
 
-      <div className="cc-notification-menu">
+      <div className="cc-notification-menu" ref={notificationMenuRef}>
         <button
           type="button"
           className="cc-notification-toggle"

@@ -4,6 +4,7 @@ import { unexpectedFields } from "../../middleware/requestSafety.js";
 const FORMATS = ["T10", "T20", "ODI", "TEST", "HUNDRED"];
 const STATUSES = ["upcoming", "live", "completed", "cancelled", "abandoned"];
 const RESULTS = ["teamA", "teamB", "tie", "no_result", "abandoned", "cancelled"];
+const CONTEST_TIERS = ["FREE", "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND", "ELITE", "CHAMPION"];
 
 export function validateMatch(payload, { partial = false } = {}) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -12,8 +13,52 @@ export function validateMatch(payload, { partial = false } = {}) {
 
   const errors = [];
   errors.push(...unexpectedFields(payload, [
-    "competition", "teamA", "teamB", "format", "status", "result", "startTime",
+    "competition", "title", "imageUrl", "teamA", "teamB", "format", "status", "result", "startTime",
+    "automaticContestGeneration", "automaticContestTiers",
+    "creationRequestId",
   ]));
+
+  if (payload.creationRequestId !== undefined
+    && (typeof payload.creationRequestId !== "string" || !/^[a-zA-Z0-9_-]{16,100}$/.test(payload.creationRequestId))) {
+    errors.push("Match creation request ID must contain 16 to 100 letters, numbers, underscores, or hyphens.");
+  }
+  if (partial && payload.creationRequestId !== undefined) {
+    errors.push("Match creation request ID can only be supplied when creating a match.");
+  }
+
+  if (payload.automaticContestGeneration !== undefined && typeof payload.automaticContestGeneration !== "boolean") {
+    errors.push("Automatic contest generation must be enabled or disabled.");
+  }
+
+  if (payload.automaticContestTiers !== undefined) {
+    if (!Array.isArray(payload.automaticContestTiers)
+      || payload.automaticContestTiers.some((tier) => !CONTEST_TIERS.includes(tier))
+      || new Set(payload.automaticContestTiers).size !== payload.automaticContestTiers.length) {
+      errors.push(`Automatic contest templates must be unique supported tiers: ${CONTEST_TIERS.join(", ")}.`);
+    }
+    if (Array.isArray(payload.automaticContestTiers)
+      && payload.automaticContestTiers.length === 0
+      && payload.automaticContestGeneration !== false) {
+      errors.push("Choose at least one automatic contest template or disable automatic contest generation.");
+    }
+  }
+
+  if (payload.title !== undefined && (typeof payload.title !== "string" || payload.title.trim().length > 140)) {
+    errors.push("Match title must be text of at most 140 characters.");
+  }
+
+  if (payload.imageUrl !== undefined) {
+    if (typeof payload.imageUrl !== "string" || payload.imageUrl.length > 500) {
+      errors.push("Match image URL must be at most 500 characters.");
+    } else if (payload.imageUrl.trim()) {
+      try {
+        const imageUrl = new URL(payload.imageUrl.trim());
+        if (!["http:", "https:"].includes(imageUrl.protocol)) errors.push("Match image URL must use HTTP or HTTPS.");
+      } catch {
+        errors.push("Provide a valid match image URL.");
+      }
+    }
+  }
 
   if (!partial || payload.competition !== undefined) {
     if (

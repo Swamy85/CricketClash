@@ -18,7 +18,10 @@ export function getContestLobbyView(contests, { currentUserId, matchId, now = ne
   const visible = matching.filter((contest) => {
     const players = Array.isArray(contest.players) ? contest.players : [];
     const joinedByUser = players.some((player) => playerUserId(player) === String(currentUserId || ""));
-    if (contest.status !== "OPEN" || players.length !== 0 || joinedByUser) return false;
+    if (joinedByUser || players.length > 1) return false;
+    if (contest.status === "OPEN" && players.length !== 0) return false;
+    if (contest.status === "WAITING" && (players.length !== 1 || !["PAID", "NOT_REQUIRED"].includes(players[0].entryPaymentStatus))) return false;
+    if (!["OPEN", "WAITING"].includes(contest.status)) return false;
     if (["SETTLED", "REFUNDED"].includes(contest.settlementStatus)) return false;
     return true;
   });
@@ -34,12 +37,15 @@ export function getContestLobbyView(contests, { currentUserId, matchId, now = ne
 
 export function getJoinedContestView(contests, matchId) {
   const rows = Array.isArray(contests) ? contests : [];
-  // The API returns a player's newest joined entries first. Keep the main
-  // Joined Contests view focused on that match; a matchId can select another.
-  const selectedMatchId = matchId || String(rows[0]?.match?._id || rows[0]?.match || "");
-  return rows.filter((contest) =>
-    selectedMatchId && String(contest.match?._id || contest.match) === String(selectedMatchId)
-  );
+  const matching = rows.filter((contest) => {
+    const match = contest.match && typeof contest.match === "object" ? contest.match : null;
+    const status = String(match?.status || "").toLowerCase();
+    const contestMatchId = String(match?._id || contest.match || "");
+    return ["upcoming", "live"].includes(status) && (!matchId || contestMatchId === String(matchId));
+  });
+  if (matchId || matching.length === 0) return matching;
+  const newestMatchId = String(matching[0].match?._id || matching[0].match || "");
+  return matching.filter((contest) => String(contest.match?._id || contest.match || "") === newestMatchId);
 }
 
 export function getJoinedContestStatus(contest, userPublicId) {

@@ -38,12 +38,7 @@ export default function ResetPasswordPage() {
       sessionStorage.removeItem(PASSWORD_RESET_TOKEN_KEY);
       sessionStorage.removeItem(SESSION_STORAGE_KEY);
       sessionStorage.removeItem("cc_last_activity");
-      sessionStorage.setItem("cc_logout_reason", "expired");
-      window.dispatchEvent(
-        new CustomEvent("cricketclash:session-expired", {
-          detail: { code: "SESSION_INVALID", message: "Your password changed. Please log in again." },
-        })
-      );
+      window.location.replace("/login?passwordReset=success");
     } catch (requestError) {
       setError(requestError.message || "Unable to reset your password. Please try again.");
     } finally {

@@ -5,6 +5,8 @@ import {
   getAdminContests,
   postCreateContest,
   patchCancelContest,
+  patchAdminContest,
+  deleteAdminContest,
   getContestLedger,
 } from "./contestController.js";
 
@@ -14,6 +16,8 @@ const router = Router();
 router.get("/", getAdminContests);
 router.get("/:id/ledger", getContestLedger);
 router.post("/", postCreateContest);
+router.patch("/:id", patchAdminContest);
+router.delete("/:id", deleteAdminContest);
 router.patch("/:id/cancel", patchCancelContest);
 
 export default router;

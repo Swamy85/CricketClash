@@ -84,6 +84,7 @@ export function normalizeProviderMatch(row) {
     innings,
     format: String(row.matchType || "").toUpperCase() || null,
     series: String(row.series || row.name || "").trim() || null,
+    venue: String(row.venue || row.venueName || row.ground || "").trim() || null,
     status: description || providerStatus || "Status unavailable",
     category,
     startTime: validStart ? startsAt.toISOString() : null,

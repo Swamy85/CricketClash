@@ -13,6 +13,40 @@ import paymentQr from "../../../assets/QR_Code.jpeg";
 import "./WalletPage.css";
 
 const UPI_ID = "8341929472@axl";
+const HISTORY_PAGE_SIZE = 10;
+
+function getPageCount(records) {
+  return Math.max(1, Math.ceil(records.length / HISTORY_PAGE_SIZE));
+}
+
+function getPageRecords(records, page) {
+  const start = (page - 1) * HISTORY_PAGE_SIZE;
+  return records.slice(start, start + HISTORY_PAGE_SIZE);
+}
+
+function HistoryPagination({ page, pageCount, onPageChange, label }) {
+  if (pageCount <= 1) return null;
+  return (
+    <nav className="cc-wallet-pagination" aria-label={`${label} pagination`}>
+      <button type="button" onClick={() => onPageChange(page - 1)} disabled={page === 1}>Previous</button>
+      <div className="cc-wallet-page-numbers" aria-label="Pages">
+        {Array.from({ length: pageCount }, (_, index) => index + 1).map((pageNumber) => (
+          <button
+            type="button"
+            key={pageNumber}
+            onClick={() => onPageChange(pageNumber)}
+            aria-current={pageNumber === page ? "page" : undefined}
+            aria-label={`Page ${pageNumber}`}
+            className={pageNumber === page ? "active" : ""}
+          >
+            {pageNumber}
+          </button>
+        ))}
+      </div>
+      <button type="button" onClick={() => onPageChange(page + 1)} disabled={page === pageCount}>Next</button>
+    </nav>
+  );
+}
 
 function formatDate(value) {
   if (!value) return "—";
@@ -43,6 +77,9 @@ export default function WalletPage() {
   const [wallet, setWallet] = useState(null);
   const [withdrawals, setWithdrawals] = useState([]);
   const [transactions, setTransactions] = useState([]);
+  const [withdrawalPage, setWithdrawalPage] = useState(1);
+  const [transactionPage, setTransactionPage] = useState(1);
+  const [depositPage, setDepositPage] = useState(1);
   const [coinAmount, setCoinAmount] = useState("");
 
   const [payoutDetails, setPayoutDetails] = useState({
@@ -66,6 +103,19 @@ export default function WalletPage() {
   const [depositSubmitting, setDepositSubmitting] = useState(false);
   const walletRequestRef = useRef(null);
   const depositRequestRef = useRef(null);
+
+  const withdrawalPageCount = getPageCount(withdrawals);
+  const transactionPageCount = getPageCount(transactions);
+  const depositPageCount = getPageCount(deposits);
+  const pageWithdrawals = getPageRecords(withdrawals, withdrawalPage);
+  const pageTransactions = getPageRecords(transactions, transactionPage);
+  const pageDeposits = getPageRecords(deposits, depositPage);
+
+  useEffect(() => {
+    setWithdrawalPage((page) => Math.min(page, withdrawalPageCount));
+    setTransactionPage((page) => Math.min(page, transactionPageCount));
+    setDepositPage((page) => Math.min(page, depositPageCount));
+  }, [withdrawalPageCount, transactionPageCount, depositPageCount]);
 
   // Load wallet balance and withdrawal history.
   const loadWallet = useCallback(async ({ silent = false, initial = false } = {}) => {
@@ -689,7 +739,7 @@ export default function WalletPage() {
                   </thead>
 
                   <tbody>
-                    {deposits.map((deposit) => (
+                    {pageDeposits.map((deposit) => (
                       <tr key={deposit._id || deposit.utr}>
                         <td>{formatDate(deposit.createdAt)}</td>
 
@@ -731,6 +781,7 @@ export default function WalletPage() {
                 </table>
               </div>
             )}
+            <HistoryPagination page={depositPage} pageCount={depositPageCount} onPageChange={setDepositPage} label="Deposit history" />
           </details>
         </div>
       )}
@@ -997,7 +1048,7 @@ export default function WalletPage() {
                   </thead>
 
                   <tbody>
-                    {withdrawals.map((item) => (
+                    {pageWithdrawals.map((item) => (
                       <tr key={item._id || item.reference}>
                         <td>{formatDate(item.createdAt)}</td>
 
@@ -1029,6 +1080,7 @@ export default function WalletPage() {
                 </table>
               </div>
             )}
+            <HistoryPagination page={withdrawalPage} pageCount={withdrawalPageCount} onPageChange={setWithdrawalPage} label="Withdrawal history" />
           </details>
 
           <details className="cc-wallet-panel cc-wallet-history cc-wallet-history-accordion">
@@ -1062,7 +1114,7 @@ export default function WalletPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {transactions.map((transaction) => (
+                    {pageTransactions.map((transaction) => (
                       <tr key={transaction._id || transaction.reference}>
                         <td>{formatDate(transaction.createdAt)}</td>
                         <td>
@@ -1090,6 +1142,7 @@ export default function WalletPage() {
                 </table>
               </div>
             )}
+            <HistoryPagination page={transactionPage} pageCount={transactionPageCount} onPageChange={setTransactionPage} label="Wallet transaction history" />
           </details>
         </>
       )}

@@ -46,9 +46,8 @@ function formatCoins(value) {
 }
 
 function getMatchName(match) {
-  if (!match) return "Match unavailable";
-
-  return `${match.teamA || "Team A"} vs ${match.teamB || "Team B"}`;
+  if (!match?.teamA || !match?.teamB) return "Match unavailable";
+  return `${match.teamA} vs ${match.teamB}`;
 }
 
 function getStatusClass(status) {
@@ -67,8 +66,20 @@ export default function AdminContestsPage() {
   const [matches, setMatches] = useState([]);
   const [selectedMatch, setSelectedMatch] = useState("");
   const [selectedTier, setSelectedTier] = useState("BRONZE");
+  const [contestName, setContestName] = useState("");
+  const [editingContest, setEditingContest] = useState("");
+  const [matchFilter, setMatchFilter] = useState("ALL");
+  const [contestCounts, setContestCounts] = useState({ total: 0, open: 0, full: 0, live: 0, completed: 0 });
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [entryFeeFilter, setEntryFeeFilter] = useState("ALL");
+  const [matchViewFilter, setMatchViewFilter] = useState("ALL");
+  const [teamByName, setTeamByName] = useState({});
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [viewContest, setViewContest] = useState(null);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [contestPage, setContestPage] = useState(1);
+  const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 0 });
 
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -80,6 +91,8 @@ export default function AdminContestsPage() {
   const [ledger, setLedger] = useState({ walletEntries: [], platformEntries: [] });
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const dataRequestRef = useRef(null);
+  const matchRailRef = useRef(null);
+  const requestedMatchAppliedRef = useRef(false);
 
   const selectedTierDetails = CONTEST_TIERS.find(
     (tier) => tier.value === selectedTier
@@ -91,7 +104,7 @@ export default function AdminContestsPage() {
       return;
     }
 
-    if (dataRequestRef.current) return;
+    if (dataRequestRef.current) dataRequestRef.current.abort();
     const controller = new AbortController();
     dataRequestRef.current = controller;
     if (initial) setLoading(true);
@@ -104,7 +117,7 @@ export default function AdminContestsPage() {
 
     try {
       const [contestResponse, matchResponse] = await Promise.all([
-        adminFetch("/api/admin/contests", { signal: controller.signal }),
+        adminFetch(`/api/admin/contests?page=${contestPage}&limit=10&matchId=${encodeURIComponent(matchFilter)}&status=${encodeURIComponent(statusFilter)}&search=${encodeURIComponent(debouncedSearch.trim())}&entryFee=${encodeURIComponent(entryFeeFilter)}`, { signal: controller.signal }),
         adminFetch("/api/admin/matches", { signal: controller.signal }),
       ]);
 
@@ -145,7 +158,13 @@ export default function AdminContestsPage() {
         : [];
 
       setContests(contestList);
+      setPagination(contestData.pagination || { page: contestPage, limit: 10, total: contestList.length, totalPages: contestList.length ? 1 : 0 });
+      const lastPage = Math.max(1, contestData.pagination?.totalPages || 0);
+      if (contestPage > lastPage) {
+        setContestPage(lastPage);
+      }
       setMatches(matchList);
+      if (contestData.counts) setContestCounts(contestData.counts);
       setError("");
       if (!silent && !initial) setMessage("Contest data updated.");
 
@@ -157,9 +176,13 @@ export default function AdminContestsPage() {
           Number.isFinite(new Date(match.startTime).getTime()) &&
           new Date(match.startTime).getTime() > now
       );
+      const requestedMatchId = location.state?.matchId;
+      if (!requestedMatchAppliedRef.current && requestedMatchId && matchList.some((match) => match._id === requestedMatchId)) {
+        setMatchFilter(requestedMatchId);
+        requestedMatchAppliedRef.current = true;
+      }
 
       setSelectedMatch((previous) => {
-        const requestedMatchId = location.state?.matchId;
         if (requestedMatchId && eligibleMatches.some((match) => match._id === requestedMatchId)) {
           return requestedMatchId;
         }
@@ -176,7 +199,15 @@ export default function AdminContestsPage() {
         if (!silent && !initial) setRefreshing(false);
       }
     }
-  }, [location.state?.matchId, navigate]);
+  }, [location.state?.matchId, navigate, contestPage, matchFilter, statusFilter, entryFeeFilter, debouncedSearch]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setContestPage(1);
+      setDebouncedSearch(search);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
   useEffect(() => {
     void loadData({ initial: true });
@@ -192,6 +223,19 @@ export default function AdminContestsPage() {
     };
   }, [loadData]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    adminFetch("/api/admin/teams?limit=1000", { signal: controller.signal })
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.teams)) {
+          setTeamByName(Object.fromEntries(data.teams.map((team) => [team.name, team])));
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
+
   const eligibleMatches = useMemo(() => {
     const now = Date.now();
 
@@ -203,59 +247,33 @@ export default function AdminContestsPage() {
     );
   }, [matches]);
 
-  const filteredContests = useMemo(() => {
-    const query = search.trim().toLowerCase();
+  const filteredContests = contests;
 
-    return contests.filter((contest) => {
-      const matchesStatus =
-        statusFilter === "ALL" || contest.status === statusFilter;
+  const visibleMatches = useMemo(() => matches.filter((match) => {
+    if (matchViewFilter === "ALL") return true;
+    if (matchViewFilter === "COMPLETED") return ["completed", "cancelled", "abandoned"].includes(match.status);
+    return match.status === matchViewFilter.toLowerCase();
+  }), [matches, matchViewFilter]);
 
-      const searchableText = [
-        contest._id,
-        contest.tier,
-        contest.status,
-        getMatchName(contest.match),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
+  function chooseMatch(matchId) {
+    setContestPage(1);
+    setMatchFilter(matchId);
+  }
 
-      return matchesStatus && searchableText.includes(query);
-    });
-  }, [contests, search, statusFilter]);
+  function resetContestFilters() {
+    setSearch("");
+    setDebouncedSearch("");
+    setStatusFilter("ALL");
+    setEntryFeeFilter("ALL");
+    setMatchViewFilter("ALL");
+    chooseMatch("ALL");
+  }
 
-  const contestsByMatch = useMemo(() => {
-    const grouped = new Map();
-    for (const contest of filteredContests) {
-      const matchId = String(contest.match?._id || contest.match || "unknown");
-      if (!grouped.has(matchId)) {
-        grouped.set(matchId, {
-          id: matchId,
-          match: contest.match && typeof contest.match === "object"
-            ? contest.match
-            : null,
-          contests: [],
-        });
-      }
-      grouped.get(matchId).contests.push(contest);
-    }
-    return [...grouped.values()].sort((left, right) => {
-      const leftStart = new Date(left.match?.startTime || 0).getTime();
-      const rightStart = new Date(right.match?.startTime || 0).getTime();
-      return rightStart - leftStart;
-    });
-  }, [filteredContests]);
+  function scrollMatchCards(direction) {
+    matchRailRef.current?.scrollBy({ left: direction * 360, behavior: "smooth" });
+  }
 
-  const metrics = useMemo(() => ({
-    total: contests.length,
-    open: contests.filter(
-      (contest) => ["OPEN", "WAITING"].includes(contest.status)
-    ).length,
-    full: contests.filter((contest) => contest.status === "FULL").length,
-    completed: contests.filter(
-      (contest) => contest.status === "COMPLETED"
-    ).length,
-  }), [contests]);
+  const metrics = contestCounts;
 
   async function loadContestLedger(contest) {
     setLedgerContest(contest);
@@ -291,7 +309,7 @@ export default function AdminContestsPage() {
     }
   }
 
-  async function handleCreateContest(event) {
+  async function handleSaveContest(event) {
     event.preventDefault();
     setError("");
     setMessage("");
@@ -300,17 +318,22 @@ export default function AdminContestsPage() {
       setError("Select an eligible upcoming match first.");
       return;
     }
+    if (!contestName.trim()) {
+      setError("Enter a contest name.");
+      return;
+    }
     setCreating(true);
 
     try {
-      const response = await adminFetch("/api/admin/contests", {
-        method: "POST",
+      const response = await adminFetch(editingContest ? `/api/admin/contests/${editingContest}` : "/api/admin/contests", {
+        method: editingContest ? "PATCH" : "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           matchId: selectedMatch,
           tier: selectedTier,
+          name: contestName.trim(),
         }),
       });
 
@@ -326,12 +349,80 @@ export default function AdminContestsPage() {
         throw new Error(data.message || "Unable to create contest.");
       }
 
-      setMessage(data.message || "Contest created successfully.");
+      setMessage(data.message || (editingContest ? "Contest updated successfully." : "Contest created successfully."));
+      setEditingContest("");
+      setCreateModalOpen(false);
+      setContestName("");
       await loadData({ silent: true });
     } catch (err) {
       setError(err.message || "Unable to create contest.");
     } finally {
       setCreating(false);
+    }
+  }
+
+  function beginEdit(contest) {
+    if (contest.status !== "OPEN" || getPlayerCount(contest) > 0 || contest.settlementStatus !== "NOT_READY") return;
+    setEditingContest(contest._id);
+    setCreateModalOpen(true);
+    setContestName(contest.name || `${contest.tier} Head-to-Head`);
+    setSelectedMatch(String(contest.match?._id || contest.match || ""));
+    setSelectedTier(contest.tier);
+    setError("");
+    setMessage("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function cancelEdit() {
+    setEditingContest("");
+    setCreateModalOpen(false);
+    setContestName("");
+    setSelectedMatch(eligibleMatches[0]?._id || "");
+    setSelectedTier("BRONZE");
+  }
+
+  async function handleDeleteContest(contest) {
+    if (contest.status !== "OPEN" || getPlayerCount(contest) > 0 || contest.settlementStatus !== "NOT_READY") return;
+    if (!window.confirm(`Delete “${contest.name || contest.tier}”? This empty contest will be permanently removed.`)) return;
+    setError("");
+    setMessage("");
+    try {
+      const response = await adminFetch(`/api/admin/contests/${contest._id}`, { method: "DELETE" });
+      if ([401, 403].includes(response.status)) {
+        clearAdminSession();
+        navigate("/admin/login", { replace: true });
+        return;
+      }
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.message || "Unable to delete contest.");
+      setMessage(data.message || "Contest deleted.");
+      await loadData({ silent: true });
+    } catch (err) {
+      setError(err.message || "Unable to delete contest.");
+    }
+  }
+
+  async function handleCancelContest(contest) {
+    if (!window.confirm(`Cancel this contest? ${getPlayerCount(contest) ? "Eligible player entry fees will be refunded." : "No players have joined."}`)) return;
+    setError("");
+    setMessage("");
+    try {
+      const response = await adminFetch(`/api/admin/contests/${contest._id}/cancel`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "ADMIN_CANCELLED" }),
+      });
+      if ([401, 403].includes(response.status)) {
+        clearAdminSession();
+        navigate("/admin/login", { replace: true });
+        return;
+      }
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.message || "Unable to cancel contest.");
+      setMessage(data.message || "Contest cancelled.");
+      await loadData({ silent: true });
+    } catch (err) {
+      setError(err.message || "Unable to cancel contest.");
     }
   }
 
@@ -354,6 +445,7 @@ export default function AdminContestsPage() {
         >
           {refreshing ? "Refreshing..." : "↻ Refresh"}
         </button>
+        <button type="button" className="ac-button ac-button-primary" onClick={() => { setEditingContest(""); setContestName(""); setCreateModalOpen(true); }}>+ Create Contest</button>
       </header>
 
       {error && (
@@ -374,7 +466,7 @@ export default function AdminContestsPage() {
           <strong>{metrics.total}</strong>
         </article>
         <article className="ac-metric">
-          <span>Open / waiting</span>
+          <span>Open contests</span>
           <strong>{metrics.open}</strong>
         </article>
         <article className="ac-metric">
@@ -382,20 +474,36 @@ export default function AdminContestsPage() {
           <strong>{metrics.full}</strong>
         </article>
         <article className="ac-metric">
+          <span>Live contests</span>
+          <strong>{metrics.live}</strong>
+        </article>
+        <article className="ac-metric">
           <span>Completed</span>
           <strong>{metrics.completed}</strong>
         </article>
       </div>
 
-      <section className="ac-panel">
+      {createModalOpen && <div className="ac-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && !creating && setCreateModalOpen(false)}><section id="contest-create-panel" className="ac-panel ac-create-modal" role="dialog" aria-modal="true" aria-labelledby="contest-form-title">
         <div className="ac-section-heading">
           <div>
-            <h2>Create a contest</h2>
-            <p>Choose an upcoming match and a predefined prize tier.</p>
+            <h2 id="contest-form-title">{editingContest ? "Edit contest" : "Create a contest"}</h2>
+            <p>Two-player head-to-head contests use the existing tier and 10% fee rules.</p>
           </div>
         </div>
 
-        <form className="ac-create-form" onSubmit={handleCreateContest}>
+        <form className="ac-create-form" onSubmit={handleSaveContest}>
+          <label className="ac-field">
+            <span>Contest name</span>
+            <input
+              value={contestName}
+              onChange={(event) => setContestName(event.target.value)}
+              maxLength={80}
+              placeholder="Bronze Head-to-Head"
+              required
+              disabled={creating}
+            />
+          </label>
+
           <label className="ac-field">
             <span>Match</span>
             <select
@@ -434,6 +542,17 @@ export default function AdminContestsPage() {
             </select>
           </label>
 
+          <div className="ac-form-fixed-fields">
+            <label className="ac-field">
+              <span>Contest capacity</span>
+              <input value="2 participants · Head-to-head" readOnly aria-label="Contest capacity is fixed at two participants" />
+            </label>
+            <label className="ac-field">
+              <span>Initial status</span>
+              <input value="Open" readOnly aria-label="New contests start Open" />
+            </label>
+          </div>
+
           <div className="ac-prize-preview">
             <div>
               <span>Entry per player</span>
@@ -471,22 +590,56 @@ export default function AdminContestsPage() {
             className="ac-button ac-button-primary"
             disabled={creating || !eligibleMatches.some((match) => match._id === selectedMatch)}
           >
-            {creating ? "Creating..." : "+ Create contest"}
+            {creating ? "Saving..." : editingContest ? "Save changes" : "+ Create contest"}
           </button>
+          <button type="button" className="ac-button ac-button-secondary" onClick={() => { setCreateModalOpen(false); setEditingContest(""); }} disabled={creating}>Close</button>
+          {editingContest && (
+            <button type="button" className="ac-button ac-button-secondary" onClick={cancelEdit} disabled={creating}>
+              Cancel edit
+            </button>
+          )}
         </form>
+      </section></div>}
+
+      <section className="ac-panel ac-match-panel">
+        <div className="ac-match-panel-heading">
+          <div><h2>Select match</h2><p>{matchFilter === "ALL" ? "Showing contests from every match" : `Showing contests for ${getMatchName(matches.find((item) => item._id === matchFilter))}`}</p></div>
+          <div className="ac-match-tools">
+            <div className="ac-match-view-filters" role="group" aria-label="Filter matches by status">
+              {["ALL", "UPCOMING", "LIVE", "COMPLETED"].map((filter) => <button type="button" key={filter} className={matchViewFilter === filter ? "is-active" : ""} aria-pressed={matchViewFilter === filter} onClick={() => { setMatchViewFilter(filter); const candidates = matches.filter((match) => filter === "ALL" || (filter === "COMPLETED" ? ["completed", "cancelled", "abandoned"].includes(match.status) : match.status === filter.toLowerCase())); if (!candidates.some((match) => match._id === matchFilter)) chooseMatch(candidates[0]?._id || "ALL"); }}>{filter === "ALL" ? "All" : filter.charAt(0) + filter.slice(1).toLowerCase()}</button>)}
+            </div>
+            <button type="button" className="ac-match-arrow" onClick={() => scrollMatchCards(-1)} aria-label="Scroll matches left">‹</button>
+            <button type="button" className="ac-match-arrow" onClick={() => scrollMatchCards(1)} aria-label="Scroll matches right">›</button>
+          </div>
+        </div>
+        <div className="ac-match-rail" ref={matchRailRef}>
+          <button type="button" className={`ac-match-card ac-all-match-card${matchFilter === "ALL" ? " is-selected" : ""}`} onClick={() => chooseMatch("ALL")} aria-pressed={matchFilter === "ALL"}><strong>All matches</strong><span>View all contests</span></button>
+          {visibleMatches.map((match) => {
+            const home = teamByName[match.teamA];
+            const away = teamByName[match.teamB];
+            const mark = (team) => team?.logo ? <img src={team.logo} alt="" loading="lazy" /> : <span>{team?.flag || "🏏"}</span>;
+            return <button type="button" key={match._id} className={`ac-match-card${matchFilter === match._id ? " is-selected" : ""}`} onClick={() => chooseMatch(match._id)} aria-pressed={matchFilter === match._id}>
+              <div className="ac-match-card-teams"><span className="ac-team-mark">{mark(home)}</span><strong>{match.teamA}</strong><span className="ac-match-vs">vs</span><span className="ac-team-mark">{mark(away)}</span><strong>{match.teamB}</strong></div>
+              <span className="ac-match-competition">{match.competition || match.title || "Cricket match"}</span>
+              <span className="ac-match-date">{formatDate(match.startTime)}</span>
+              <span className={`ac-match-status ac-match-status-${String(match.status).toLowerCase()}`}>{match.status}</span>
+            </button>;
+          })}
+          {!visibleMatches.length && <div className="ac-match-empty">No matches in this category.</div>}
+        </div>
       </section>
 
       <section className="ac-panel">
         <div className="ac-section-heading ac-list-heading">
           <div>
-            <h2>All contests</h2>
-            <p>{filteredContests.length} contest(s) shown</p>
+            <h2>{matchFilter === "ALL" ? "All contests" : `Contests for ${getMatchName(matches.find((item) => item._id === matchFilter))}`}</h2>
+            <p>{pagination.total} contest(s) matching filters · 10 per page</p>
           </div>
 
           <div className="ac-filters">
             <input
               type="search"
-              placeholder="Search match, tier, or ID..."
+              placeholder="Search contest name or ID..."
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               aria-label="Search contests"
@@ -494,107 +647,88 @@ export default function AdminContestsPage() {
 
             <select
               value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
+              onChange={(event) => { setContestPage(1); setStatusFilter(event.target.value); }}
               aria-label="Filter contests by status"
             >
               {STATUS_OPTIONS.map((status) => (
                 <option key={status} value={status}>
-                  {status === "ALL" ? "All statuses" : status}
+                  {status === "ALL" ? "All statuses" : status === "LOCKED" ? "LIVE" : status === "WAITING" ? "FILLING" : status}
                 </option>
               ))}
             </select>
+            <select value={entryFeeFilter} onChange={(event) => { setContestPage(1); setEntryFeeFilter(event.target.value); }} aria-label="Filter by entry fee">
+              <option value="ALL">All entry fees</option>
+              {CONTEST_TIERS.map((tier) => <option key={tier.value} value={tier.entryFee}>{formatCoins(tier.entryFee)}</option>)}
+            </select>
+            <button type="button" className="ac-button ac-button-secondary ac-reset-button" onClick={resetContestFilters}>Reset</button>
           </div>
         </div>
 
         {loading ? (
           <div className="ac-empty-state">Loading contests...</div>
-        ) : contestsByMatch.length === 0 ? (
+        ) : filteredContests.length === 0 ? (
           <div className="ac-empty-state">
             <span className="ac-empty-icon">🏏</span>
             <h3>No contests found</h3>
-            <p>Create a contest above or change your search filters.</p>
+            <p>{pagination.total ? "Try changing your search or filters." : "Create a contest above to start accepting entries."}</p>
           </div>
         ) : (
-          <div className="ac-match-groups">
-            {contestsByMatch.map(({ id, match, contests: matchContests }) => (
-              <details className="ac-match-group" key={id}>
-                <summary className="ac-match-group-summary">
-                  <span className="ac-match-group-chevron" aria-hidden="true">›</span>
-                  <span className="ac-match-group-title">
-                    <strong>{getMatchName(match)}</strong>
-                    <small>
-                      {match?.competition ? `${match.competition} · ` : ""}
-                      {match?.format || "Match"} · {formatDate(match?.startTime)}
-                    </small>
-                  </span>
-                  <span className={`ac-status ac-status-${getStatusClass(match?.status)}`}>
-                    {match?.status || "UNKNOWN"}
-                  </span>
-                  <span className="ac-match-group-count">
-                    {matchContests.length} contest{matchContests.length === 1 ? "" : "s"}
-                  </span>
-                </summary>
-
-                <div className="ac-match-contests">
-                  {matchContests.map((contest) => {
-                    const players = Array.isArray(contest.players) ? contest.players : [];
-                    return (
-                      <article className="ac-match-contest" key={contest._id}>
-                        <div className="ac-match-contest-heading">
-                          <span className={`ac-tier ac-tier-${String(contest.tier || "").toLowerCase()}`}>
-                            {contest.tier}
-                          </span>
-                          <span className={`ac-status ac-status-${getStatusClass(contest.status)}`}>
-                            {contest.status}
-                          </span>
-                          <small className="ac-id">ID: {contest._id}</small>
+          <div className="ac-table-wrap">
+            <table className="ac-table ac-contest-table">
+              <thead><tr><th>#</th><th>Contest ID</th><th>Contest</th><th>Match / teams</th><th>Entry fee</th><th>Prize pool</th><th>Joined / 2</th><th>Status</th><th>Created at (IST)</th><th>Actions</th></tr></thead>
+              <tbody>
+                {filteredContests.map((contest, index) => {
+                  const match = typeof contest.match === "object" ? contest.match : matches.find((item) => item._id === String(contest.match));
+                  const players = getPlayerCount(contest);
+                  const platformFeeAmount = Number.isFinite(contest.platformFee)
+                    ? contest.platformFee
+                    : Math.round((contest.prizePool || 0) * (contest.platformFeePercentage ?? 10) / 100);
+                  const canEditOrDelete = contest.status === "OPEN" && players === 0 && contest.settlementStatus === "NOT_READY";
+                  const canCancel = ["OPEN", "WAITING", "FULL", "LOCKED"].includes(contest.status);
+                  const displayStatus = contest.status === "LOCKED" ? "LIVE" : contest.status === "WAITING" ? "FILLING" : contest.status;
+                  return (
+                    <tr key={contest._id}>
+                      <td>{((contestPage - 1) * 10) + index + 1}</td>
+                      <td>{String(contest._id).slice(-8).toUpperCase()}</td>
+                      <td><strong>{contest.name || `${contest.tier} Head-to-Head`}</strong><small>{contest.tier} · ID: {String(contest._id).slice(-8)}</small><small>{contest.creationMethod === "AUTOMATIC" ? "Automatic" : contest.creationMethod === "MANUAL" ? "Manual" : "Legacy source unknown"}</small></td>
+                      <td><strong>{getMatchName(match)}</strong><small>{match?.competition || "Cricket match"} · {formatDate(match?.startTime || contest.expiresAt)}</small></td>
+                      <td>{formatCoins(contest.entryFee)}<small>per player</small></td>
+                      <td>{formatCoins(contest.prizePool)}<small>{formatCoins(platformFeeAmount)} platform fee ({contest.platformFeePercentage ?? 10}%)</small></td>
+                      <td><strong>{players}/2</strong><small>{Math.max(0, 2 - players)} slot{2 - players === 1 ? "" : "s"} left</small>{contest.players?.length > 0 && <small>{contest.players.map((player) => `${player.user?.username || player.user?.userId || "Player"} · ${player.selectedTeam === "A" ? (match?.teamA || "selected side") : (match?.teamB || "selected side")}`).join(" | ")}</small>}</td>
+                      <td><span className={`ac-status ac-status-${getStatusClass(displayStatus)}`}>{displayStatus}</span></td>
+                      <td>{formatDate(contest.createdAt)}</td>
+                      <td>
+                        <div className="ac-row-actions">
+                          <button type="button" className="ac-action-button" onClick={() => setViewContest(contest)}>View</button>
+                          <button type="button" className="ac-action-button" onClick={() => beginEdit(contest)} disabled={!canEditOrDelete} title={canEditOrDelete ? "Edit contest" : "Joined or financially active contests cannot be edited"}>Edit</button>
+                          <button type="button" className="ac-ledger-button" onClick={() => loadContestLedger(contest)}>Ledger</button>
+                          <button type="button" className="ac-action-button ac-action-danger" onClick={() => handleDeleteContest(contest)} disabled={!canEditOrDelete} title={canEditOrDelete ? "Delete contest" : "Contests with participants or financial activity cannot be deleted"}>Delete</button>
+                          {!canEditOrDelete && canCancel && <button type="button" className="ac-action-button ac-action-danger" onClick={() => handleCancelContest(contest)}>Cancel</button>}
                         </div>
-
-                        <div className="ac-match-contest-stats">
-                          <div><span>Entry fee</span><strong>{formatCoins(contest.entryFee)}</strong></div>
-                          <div><span>Prize pool</span><strong>{formatCoins(contest.prizePool)}</strong></div>
-                          <div><span>Players / slots</span><strong>{getPlayerCount(contest)}/2 · {Math.max(0, 2 - getPlayerCount(contest))} available</strong></div>
-                          <div><span>Platform fee</span><strong>{formatCoins(contest.platformFee)}</strong></div>
-                          <div><span>Winner payout</span><strong>{formatCoins(contest.winnerPayout)}</strong></div>
-                          <div><span>Settlement</span><strong>{contest.settlementStatus}</strong></div>
-                        </div>
-
-                        <div className="ac-match-contest-players">
-                          {[0, 1].map((slot) => {
-                            const player = players[slot];
-                            const teamName = player?.selectedTeam === "A"
-                              ? match?.teamA
-                              : player?.selectedTeam === "B"
-                                ? match?.teamB
-                                : "";
-                            return (
-                              <span key={slot} className={player ? "filled" : ""}>
-                                {player?.user?.userId ? `Player ID: ${player.user.userId}` : player ? "Player ID unavailable" : `Slot ${slot + 1} available`}
-                                {teamName ? ` · ${teamName} · LOCKED` : ""}
-                              </span>
-                            );
-                          })}
-                        </div>
-
-                        <div className="ac-match-contest-footer">
-                          <small>Starts {formatDate(match?.startTime || contest.expiresAt)}</small>
-                          <button
-                            type="button"
-                            className="ac-ledger-button"
-                            onClick={() => loadContestLedger(contest)}
-                          >
-                            View ledger
-                          </button>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              </details>
-            ))}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
+        {!loading && pagination.totalPages > 0 && <nav className="ac-pagination" aria-label="Contest pages">
+          <button type="button" disabled={contestPage <= 1} onClick={() => setContestPage((page) => Math.max(1, page - 1))}>Previous</button>
+          {Array.from({ length: pagination.totalPages }, (_, index) => index + 1).map((page) => <button type="button" key={page} className={contestPage === page ? "is-current" : ""} aria-current={contestPage === page ? "page" : undefined} onClick={() => setContestPage(page)}>{page}</button>)}
+          <button type="button" disabled={contestPage >= pagination.totalPages} onClick={() => setContestPage((page) => Math.min(pagination.totalPages, page + 1))}>Next</button>
+        </nav>}
       </section>
+
+      {viewContest && <div className="ac-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setViewContest(null)}>
+        <section className="ac-panel ac-view-modal" role="dialog" aria-modal="true" aria-labelledby="contest-view-title">
+          <div className="ac-section-heading"><div><p className="ac-eyebrow">CONTEST DETAILS</p><h2 id="contest-view-title">{viewContest.name || `${viewContest.tier} Head-to-Head`}</h2></div><button type="button" className="ac-button ac-button-secondary" onClick={() => setViewContest(null)}>Close</button></div>
+          <p className="ac-view-match">{getMatchName(viewContest.match)} · {viewContest.match?.competition || "Cricket match"}</p>
+          <div className="ac-view-grid"><div><span>Entry fee</span><strong>{formatCoins(viewContest.entryFee)} / player</strong></div><div><span>Prize pool</span><strong>{formatCoins(viewContest.prizePool)}</strong></div><div><span>Participants</span><strong>{getPlayerCount(viewContest)} / 2</strong></div><div><span>Status</span><strong>{viewContest.status}</strong></div><div><span>Created (IST)</span><strong>{formatDate(viewContest.createdAt)}</strong></div><div><span>Settlement</span><strong>{viewContest.settlementStatus || "Not ready"}</strong></div></div>
+          <h3 className="ac-view-participants-heading">Participants</h3>
+          {viewContest.players?.length ? <ul className="ac-view-participants">{viewContest.players.map((player, index) => { const match = viewContest.match; const teamName = player.selectedTeam === "A" ? match?.teamA : match?.teamB; const team = teamByName[teamName]; return <li key={`${player.user?._id || player.user?.userId || index}`}><span>{team?.flag || "🏏"} {player.user?.username || player.user?.userId || `Player ${index + 1}`}</span><small>{teamName || "Team unavailable"} · {player.entryPaymentStatus || "No payment required"}</small></li>; })}</ul> : <p className="ac-view-empty">No players have joined this contest.</p>}
+        </section>
+      </div>}
 
       {ledgerContest && (
         <section className="ac-panel ac-ledger-panel">

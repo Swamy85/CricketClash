@@ -2,6 +2,7 @@
 import {
   listMatches,
   listAdminMatches,
+  getAdminMatchCounts,
   getMatchById,
   createMatch,
   updateMatch,
@@ -43,10 +44,13 @@ export async function getAdminMatches(req, res) {
       return res.status(400).json({ success: false, message: '"recent" must be true or false.' });
     }
     const recent = req.query.recent === "true";
-    const limit = parseBoundedInteger(req.query.limit, { max: 100, defaultValue: 100 });
-    if (limit === null) return res.status(400).json({ success: false, message: '"limit" must be an integer between 1 and 100.' });
-    const matches = await listAdminMatches({ recent, limit });
-    return res.json({ success: true, matches });
+    const limit = parseBoundedInteger(req.query.limit, { max: 1000, defaultValue: 1000 });
+    if (limit === null) return res.status(400).json({ success: false, message: '"limit" must be an integer between 1 and 1000.' });
+    const [matches, counts] = await Promise.all([
+      listAdminMatches({ recent, limit }),
+      getAdminMatchCounts(),
+    ]);
+    return res.json({ success: true, matches, counts });
   } catch (error) {
     return sendError(res, error, "Could not fetch matches.");
   }

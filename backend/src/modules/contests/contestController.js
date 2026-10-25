@@ -1,6 +1,7 @@
 
 import {
   validateCreateContest,
+  validateEditContest,
   validateJoinContest,
 } from "./contestValidation.js";
 
@@ -11,12 +12,16 @@ import {
   listAllContests,
   createContest,
   cancelContest,
+  editContest,
+  deleteEmptyContest,
+  getAdminContestCounts,
   listLeaderboard,
 } from "./contestService.js";
 import mongoose from "mongoose";
 import WalletTransaction from "../../models/WalletTransaction.js";
 import PlatformLedgerEntry from "../../models/PlatformLedgerEntry.js";
 import Contest from "../../models/Contest.js";
+import Match from "../../models/Match.js";
 import { parseBoundedInteger, unexpectedFields } from "../../middleware/requestSafety.js";
 
 function sendError(res, error) {
@@ -36,11 +41,22 @@ function sendError(res, error) {
 }
 
 export async function getOpenContests(req, res) {
+  const unknownFields = unexpectedFields(req.query, ["matchId"]);
+  if (unknownFields.length) return res.status(400).json({ success: false, message: unknownFields[0] });
+  const matchId = req.query.matchId ? String(req.query.matchId) : "";
+  if (matchId && !mongoose.isValidObjectId(matchId)) {
+    return res.status(400).json({ success: false, message: "Invalid match ID." });
+  }
   try {
-    const contests = await listOpenContests();
+    const match = matchId
+      ? await Match.findById(matchId).select("competition teamA teamB format status result startTime").lean()
+      : null;
+    if (matchId && !match) return res.status(404).json({ success: false, message: "Match not found." });
+    const contests = await listOpenContests(new Date(), matchId || undefined);
     return res.json({
       success: true,
       currentUserId: String(req.user._id),
+      match,
       contests,
     });
   } catch (error) {
@@ -125,9 +141,46 @@ export async function postJoinContest(req, res) {
 }
 
 export async function getAdminContests(req, res) {
+  const unknownFields = unexpectedFields(req.query, ["page", "limit", "matchId", "status", "search", "entryFee"]);
+  if (unknownFields.length) return res.status(400).json({ success: false, message: unknownFields[0] });
+  const page = parseBoundedInteger(req.query.page, { max: 100000, defaultValue: 1 });
+  const limit = parseBoundedInteger(req.query.limit, { max: 50, defaultValue: 10 });
+  if (page === null || limit === null) return res.status(400).json({ success: false, message: "Page and limit must be positive integers (limit maximum is 50)." });
+  const matchId = req.query.matchId ? String(req.query.matchId) : "";
+  if (matchId && matchId !== "ALL" && !mongoose.isValidObjectId(matchId)) return res.status(400).json({ success: false, message: "Invalid match ID." });
+  const status = req.query.status ? String(req.query.status).toUpperCase() : "ALL";
+  if (!["ALL", "OPEN", "WAITING", "FULL", "LOCKED", "COMPLETED", "CANCELLED", "REFUNDED"].includes(status)) return res.status(400).json({ success: false, message: "Invalid contest status." });
+  const search = String(req.query.search || "").trim().slice(0, 100);
+  const entryFee = req.query.entryFee === undefined || req.query.entryFee === "ALL" ? "ALL" : Number(req.query.entryFee);
+  if (entryFee !== "ALL" && (!Number.isFinite(entryFee) || entryFee < 0)) return res.status(400).json({ success: false, message: "Entry fee must be a non-negative number." });
   try {
-    const contests = await listAllContests();
-    return res.json({ success: true, contests });
+    const [{ contests, total }, counts] = await Promise.all([
+      listAllContests({ page, limit, matchId: matchId && matchId !== "ALL" ? matchId : "", status, search, entryFee }),
+      getAdminContestCounts(),
+    ]);
+    return res.json({ success: true, contests, counts, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function patchAdminContest(req, res) {
+  const validation = validateEditContest(req.body);
+  if (!validation.valid) {
+    return res.status(400).json({ success: false, message: validation.errors.join(" "), errors: validation.errors });
+  }
+  try {
+    const contest = await editContest(req.params.id, validation.data);
+    return res.json({ success: true, message: "Contest updated successfully.", contest });
+  } catch (error) {
+    return sendError(res, error);
+  }
+}
+
+export async function deleteAdminContest(req, res) {
+  try {
+    await deleteEmptyContest(req.params.id);
+    return res.json({ success: true, message: "Contest deleted successfully." });
   } catch (error) {
     return sendError(res, error);
   }

@@ -17,7 +17,6 @@ import ResetPasswordPage from "../features/auth/pages/ResetPasswordPage";
 import DashboardLayout from "../components/dashboard/DashboardLayout";
 import LobbyPage from "../features/dashboard/lobby/LobbyPage";
 import MatchesPage from "../features/dashboard/matches/MatchesPage";
-import LiveMatchCenterPage from "../features/dashboard/matches/LiveMatchCenterPage";
 import MyContestsPage from "../features/dashboard/contests/MyContestsPage";
 import ContestActivityPage from "../features/dashboard/contests/ContestActivityPage";
 import ContestLeaderboardPage from "../features/dashboard/contests/ContestLeaderboardPage";
@@ -174,7 +173,7 @@ export default function AppRouter() {
               element={<MatchesPage />}
             />
 
-            <Route path="live-center" element={<LiveMatchCenterPage />} />
+            <Route path="live-center" element={<Navigate to="/dashboard" replace />} />
 
             <Route
               path="contests"

@@ -22,10 +22,10 @@ test("Available Contests is the default category", () => {
   assert.equal(DEFAULT_CONTEST_CATEGORY, "AVAILABLE");
 });
 
-test("Available Contests shows only empty contests, not entries waiting for an opponent", () => {
+test("Available Contests shows empty contests and joinable entries waiting for an opponent", () => {
   assert.deepEqual(
     getContestLobbyView(contests, { currentUserId: userId, now }).map((item) => item._id),
-    ["empty-low", "empty-high"]
+    ["empty-low", "opponent", "empty-high"]
   );
 });
 
@@ -52,7 +52,7 @@ test("Available Contests omits expired, started, non-upcoming, and already joine
   const live = { ...contests[1], _id: "live", match: { ...match, status: "live" } };
   assert.deepEqual(
     getContestLobbyView([...contests, expired, started, live], { currentUserId: userId, now }).map((item) => item._id),
-    ["empty-low", "empty-high"]
+    ["empty-low", "opponent", "empty-high"]
   );
 });
 
@@ -66,7 +66,7 @@ test("Available Contests rejects stale full, payment-pending, and settled rows",
   ] };
   const settled = { ...contests[1], _id: "settled", settlementStatus: "SETTLED" };
   const result = getContestLobbyView([...contests, staleFull, pending, settled], { currentUserId: userId, now });
-  assert.deepEqual(result.map((item) => item._id), ["empty-low", "empty-high"]);
+  assert.deepEqual(result.map((item) => item._id), ["empty-low", "opponent", "empty-high"]);
 });
 
 test("Joined Contests derives full status from both participants when a stale response says waiting", () => {

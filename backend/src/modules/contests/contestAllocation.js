@@ -6,6 +6,7 @@ export function buildCompatibleContestQuery({ matchId, tier, entryFee, prizePool
     prizePool,
     status: "WAITING",
     expiresAt: { $gt: now },
+    $expr: { $gt: ["$expiresAt", "$$NOW"] },
     "players.0.selectedTeam": selectedTeam === "A" ? "B" : "A",
     // PENDING reserves an entry whose wallet transaction is in flight. The
     // second player can safely claim the slot; a failed debit removes only
@@ -24,6 +25,7 @@ export function buildEmptyContestQuery({ matchId, tier, entryFee, prizePool, use
     prizePool,
     status: "OPEN",
     expiresAt: { $gt: now },
+    $expr: { $gt: ["$expiresAt", "$$NOW"] },
     "players.0": { $exists: false },
     "players.user": { $ne: userId },
   };
