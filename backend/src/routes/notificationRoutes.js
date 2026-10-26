@@ -5,7 +5,18 @@ const router = Router();
 
 router.get("/", async (req, res) => {
   try {
-    const notifications = await Notification.find({ user: req.user._id })
+    const preferences = req.user.notificationPreferences || {};
+    const suppressedTypes = [
+      ...(preferences.matchUpdates === false ? ["MATCH_LIVE"] : []),
+      ...(preferences.contestUpdates === false ? ["CONTEST_JOINED", "OPPONENT_JOINED", "CONTEST_FULL", "CONTEST_CANCELLED"] : []),
+      ...(preferences.results === false ? ["MATCH_RESULT"] : []),
+      ...(preferences.announcements === false ? ["PAYOUT_COMPLETED", "PAYOUT_REVERSED", "REFUND_COMPLETED"] : []),
+    ];
+    const filter = {
+      user: req.user._id,
+      ...(suppressedTypes.length ? { type: { $nin: suppressedTypes } } : {}),
+    };
+    const notifications = await Notification.find(filter)
       .sort({ createdAt: -1 })
       .limit(50)
       .lean();

@@ -74,6 +74,26 @@ test("expired sessions are rejected and revoked", async () => {
   assert.equal(second.res.body.code, "SESSION_INVALID");
 });
 
+test("legacy unverified users cannot use an existing session or protected route", async () => {
+  let revoked = false;
+  const session = {
+    _id: "legacy-session", userId: "legacy-user", sessionType: "player", authVersion: 0,
+    createdAt: new Date(), lastActivityAt: new Date(), expiresAt: new Date(Date.now() + 60_000),
+    absoluteExpiresAt: new Date(Date.now() + 60_000), async save() {},
+  };
+  const auth = createAuthenticateMiddleware({
+    LoginSession: { async findOne() { return session; }, async updateOne() { revoked = true; } },
+    User: { findById() { return { async select() { return { role: "user", isEmailVerified: false, userId: "CC-LEGACY-42", authVersion: 0 }; } }; } },
+    hashSessionId: (id) => id,
+    idleTimeoutMs: 900_000,
+  });
+  const result = await invoke(auth, { sessionId: "legacy-session" });
+  assert.equal(result.res.statusCode, 401);
+  assert.equal(result.res.body.code, "SESSION_INVALID");
+  assert.equal(result.nextCalled, false);
+  assert.equal(revoked, true);
+});
+
 test("maximum lifetime expires an otherwise active session", async () => {
   const now = 50_000_000;
   let revoked = false;

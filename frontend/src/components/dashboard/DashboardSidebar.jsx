@@ -7,6 +7,7 @@ const links = [
   { to: "/dashboard/contests", label: "My Contests", icon: "⚔" },
   { to: "/dashboard/wallet", label: "Wallet", icon: "₹" },
   { to: "/dashboard/profile", label: "Profile", icon: "♙" },
+  { to: "/dashboard/settings", label: "Settings", icon: "⚙" },
   { to: "/dashboard/contact", label: "Contact Us", icon: "@" },
 ];
 

@@ -794,6 +794,7 @@
 /* Wallet action tabs */
 .cc-wallet-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin: 24px 0;
   padding-bottom: 12px;
@@ -801,6 +802,7 @@
 }
 
 .cc-wallet-tabs button {
+  flex: 1 1 145px;
   padding: 11px 22px;
   border: 1px solid #d1d5db;
   border-radius: 10px;

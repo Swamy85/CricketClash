@@ -1,21 +1,25 @@
+
 import { useState } from "react";
-import {
-  Link,
-  useLocation,
-  useNavigate,
-} from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { useAppSession } from "../../../context/SessionContext";
 import { loginUser } from "../services/authService";
 
+const OTP_STORAGE_KEYS = [
+  "cc_pending_email",
+  "cc_registration_pending",
+  "cc_otp_expires_at",
+  "cc_otp_resend_at",
+  "cc_verification_mode",
+];
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-
   const { checkSession, startSession } = useAppSession();
 
   const [form, setForm] = useState({
-    email: "",
+    email: location.state?.email || "",
     password: "",
   });
 
@@ -25,10 +29,27 @@ export default function LoginPage() {
 
   function handleChange(event) {
     setVerificationRequired(false);
+    setError("");
+
     setForm((previous) => ({
       ...previous,
       [event.target.name]: event.target.value,
     }));
+  }
+
+  function prepareEmailVerification() {
+    const email = form.email.trim().toLowerCase();
+
+    if (!email) return;
+
+    sessionStorage.setItem("cc_pending_email", email);
+    sessionStorage.setItem("cc_verification_mode", "legacy");
+    sessionStorage.removeItem("cc_registration_pending");
+
+    // No OTP has been requested yet. Allow the verification
+    // page to request a fresh code immediately.
+    sessionStorage.setItem("cc_otp_expires_at", "0");
+    sessionStorage.setItem("cc_otp_resend_at", "0");
   }
 
   async function handleLogin(event) {
@@ -37,13 +58,15 @@ export default function LoginPage() {
     if (busy) return;
 
     setError("");
+    setVerificationRequired(false);
     setBusy(true);
 
     try {
-      // Authenticate with the backend and receive the auth cookie.
-      await loginUser(form);
+      await loginUser({
+        email: form.email.trim().toLowerCase(),
+        password: form.password,
+      });
 
-      // Establish a tab-specific session and start the timer.
       const started = startSession();
 
       if (!started) {
@@ -52,7 +75,6 @@ export default function LoginPage() {
         );
       }
 
-      // Verify that the backend recognizes the new session.
       const sessionValid = await checkSession();
 
       if (!sessionValid) {
@@ -61,20 +83,17 @@ export default function LoginPage() {
         );
       }
 
-      // Remove temporary registration and OTP information.
-      sessionStorage.removeItem("cc_pending_email");
-      sessionStorage.removeItem("cc_registration_pending");
-      sessionStorage.removeItem("cc_otp_expires_at");
-      sessionStorage.removeItem("cc_otp_resend_at");
+      OTP_STORAGE_KEYS.forEach((key) =>
+        sessionStorage.removeItem(key)
+      );
       sessionStorage.removeItem("cc_logout_reason");
 
-      // Redirect safely to the originally requested page.
       const requestedPath = location.state?.from?.pathname;
-
       const restrictedPaths = [
         "/login",
         "/register",
         "/verify-email",
+        "/admin/login",
       ];
 
       const safePath =
@@ -90,7 +109,11 @@ export default function LoginPage() {
       setError(
         err.message || "Something went wrong. Please try again."
       );
-      const needsVerification = err.code === "EMAIL_NOT_VERIFIED";
+
+      const needsVerification =
+        err.code === "EMAIL_NOT_VERIFIED" ||
+        err.code === "LEGACY_VERIFICATION_REQUIRED";
+
       setVerificationRequired(needsVerification);
 
       if (needsVerification) {
@@ -98,15 +121,23 @@ export default function LoginPage() {
           "cc_pending_email",
           form.email.trim().toLowerCase()
         );
+        sessionStorage.setItem("cc_verification_mode", "legacy");
+        sessionStorage.removeItem("cc_registration_pending");
+        sessionStorage.setItem("cc_otp_expires_at", "0");
+        sessionStorage.setItem("cc_otp_resend_at", "0");
       }
     } finally {
       setBusy(false);
     }
   }
 
-  const logoutReason = new URLSearchParams(location.search).get("reason");
-  const passwordReset = new URLSearchParams(location.search).get("passwordReset") === "success";
-  const sessionExpired = ["timeout", "expired"].includes(logoutReason);
+  const params = new URLSearchParams(location.search);
+  const logoutReason = params.get("reason");
+  const passwordReset =
+    params.get("passwordReset") === "success";
+  const sessionExpired = ["timeout", "expired"].includes(
+    logoutReason
+  );
 
   return (
     <main className="split-auth-page">
@@ -184,9 +215,7 @@ export default function LoginPage() {
 
         <div className="split-auth-form-wrap">
           <div className="split-auth-heading">
-            <span className="split-auth-eyebrow">
-              WELCOME BACK
-            </span>
+            <span className="split-auth-eyebrow">WELCOME BACK</span>
             <h2>Login to your account</h2>
             <p>Pick up where your cricket journey left off.</p>
           </div>
@@ -200,7 +229,7 @@ export default function LoginPage() {
           )}
 
           {location.state?.verified && (
-            <div className="auth-success">
+            <div className="auth-success" role="status">
               Email verified successfully! You can now log in.
             </div>
           )}
@@ -217,20 +246,20 @@ export default function LoginPage() {
               {verificationRequired && (
                 <>
                   {" "}
-                  <Link to="/verify-email">Continue to email verification</Link>
+                  <Link
+                    to="/verify-email"
+                    onClick={prepareEmailVerification}
+                  >
+                    Verify Email / Resend OTP
+                  </Link>
                 </>
               )}
             </div>
           )}
 
-          <form
-            onSubmit={handleLogin}
-            className="split-auth-form"
-          >
+          <form onSubmit={handleLogin} className="split-auth-form">
             <div className="split-auth-field">
-              <label htmlFor="login-email">
-                Email address
-              </label>
+              <label htmlFor="login-email">Email address</label>
               <input
                 id="login-email"
                 type="email"
@@ -244,9 +273,7 @@ export default function LoginPage() {
             </div>
 
             <div className="split-auth-field">
-              <label htmlFor="login-password">
-                Password
-              </label>
+              <label htmlFor="login-password">Password</label>
               <input
                 id="login-password"
                 type="password"
@@ -257,7 +284,10 @@ export default function LoginPage() {
                 autoComplete="current-password"
                 required
               />
-              <Link className="split-auth-forgot-link" to="/forgot-password">
+              <Link
+                className="split-auth-forgot-link"
+                to="/forgot-password"
+              >
                 Forgot Password?
               </Link>
             </div>
@@ -277,14 +307,13 @@ export default function LoginPage() {
           </div>
 
           <p className="split-auth-switch">
-            Don't have an account?{" "}
-            <Link to="/register">Create account</Link>
+            Don't have an account? <Link to="/register">Create account</Link>
           </p>
 
           <p className="split-auth-admin">
-  Managing CricketClash?{" "}
-  <Link to="/admin/login">Administration →</Link>
-</p>
+            Managing CricketClash?{" "}
+            <Link to="/admin/login">Administration →</Link>
+          </p>
 
           <p className="split-auth-terms">
             By continuing, you agree to play fairly and respect

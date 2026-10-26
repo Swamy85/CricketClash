@@ -20,7 +20,7 @@ export default function VerifyEmailRoute() {
   const registrationPending =
     sessionStorage.getItem("cc_registration_pending") === "true";
 
-  // Prevent direct access without a pending registration.
+  // Registration and legacy unverified accounts share the verified OTP page.
   if (!registrationPending || !email || !expiresAt) {
     return <Navigate to="/login" replace />;
   }

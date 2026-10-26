@@ -572,6 +572,20 @@ export default function WalletPage() {
         >
           Withdraw
         </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "history"}
+          className={activeTab === "history" ? "active" : ""}
+          onClick={() => {
+            setActiveTab("history");
+            setError("");
+            setMessage("");
+          }}
+        >
+          Transaction History
+        </button>
       </div>
 
       {/* Deposit tab */}
@@ -1082,69 +1096,58 @@ export default function WalletPage() {
             )}
             <HistoryPagination page={withdrawalPage} pageCount={withdrawalPageCount} onPageChange={setWithdrawalPage} label="Withdrawal history" />
           </details>
-
-          <details className="cc-wallet-panel cc-wallet-history cc-wallet-history-accordion">
-            <summary className="cc-wallet-history-summary">
-              <div className="cc-wallet-history-heading">
-                <div>
-                  <h2>Wallet transaction history</h2>
-                  <p>
-                    Deposits, contest entries, winnings, refunds and withdrawals.
-                  </p>
-                </div>
-                <span className="cc-wallet-history-count">
-                  {transactions.length}{" "}
-                  {transactions.length === 1 ? "transaction" : "transactions"}
-                </span>
-              </div>
-            </summary>
-
-            {transactions.length === 0 ? (
-              <p className="cc-wallet-empty">No wallet transactions yet.</p>
-            ) : (
-              <div className="cc-wallet-table-wrapper">
-                <table className="cc-wallet-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Transaction</th>
-                      <th>Direction</th>
-                      <th>Coins</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pageTransactions.map((transaction) => (
-                      <tr key={transaction._id || transaction.reference}>
-                        <td>{formatDate(transaction.createdAt)}</td>
-                        <td>
-                          {transaction.description || transaction.type}
-                          <small>{transaction.reference}</small>
-                        </td>
-                        <td>{transaction.direction}</td>
-                        <td>
-                          {Number(transaction.amount || 0).toLocaleString(
-                            "en-IN"
-                          )}
-                        </td>
-                        <td>
-                          <span
-                            className={`cc-wallet-status ${getStatusClass(
-                              transaction.status
-                            )}`}
-                          >
-                            {transaction.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            <HistoryPagination page={transactionPage} pageCount={transactionPageCount} onPageChange={setTransactionPage} label="Wallet transaction history" />
-          </details>
         </>
+      )}
+
+      {activeTab === "history" && (
+        <section className="cc-wallet-panel cc-wallet-history">
+          <div className="cc-wallet-history-heading">
+            <div>
+              <h2>Wallet transaction history</h2>
+              <p>Deposits, contest entries, winnings, refunds and withdrawals.</p>
+            </div>
+            <span className="cc-wallet-history-count">
+              {transactions.length} {transactions.length === 1 ? "transaction" : "transactions"}
+            </span>
+          </div>
+
+          {transactions.length === 0 ? (
+            <p className="cc-wallet-empty">0 transactions</p>
+          ) : (
+            <div className="cc-wallet-table-wrapper">
+              <table className="cc-wallet-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Transaction</th>
+                    <th>Direction</th>
+                    <th>Coins</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageTransactions.map((transaction) => (
+                    <tr key={transaction._id || transaction.reference}>
+                      <td>{formatDate(transaction.createdAt)}</td>
+                      <td>
+                        {transaction.description || transaction.type}
+                        <small>{transaction.reference}</small>
+                      </td>
+                      <td>{transaction.direction}</td>
+                      <td>{Number(transaction.amount || 0).toLocaleString("en-IN")}</td>
+                      <td>
+                        <span className={`cc-wallet-status ${getStatusClass(transaction.status)}`}>
+                          {transaction.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <HistoryPagination page={transactionPage} pageCount={transactionPageCount} onPageChange={setTransactionPage} label="Wallet transaction history" />
+        </section>
       )}
     </section>
   );

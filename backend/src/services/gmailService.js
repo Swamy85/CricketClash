@@ -1,14 +1,14 @@
 import nodemailer from "nodemailer";
 
-export async function sendGmailEmail(message) {
-  const smtpHost = String(process.env.SMTP_HOST || "").trim();
-  const smtpPort = Number(process.env.SMTP_PORT);
-  const smtpUser = String(process.env.SMTP_USER || "").trim();
-  const smtpPassword = String(process.env.SMTP_PASS || "");
-  const smtpFrom = String(process.env.BREVO_SENDER_EMAIL || "").trim();
+export async function sendGmailEmail(message, { env = process.env, createTransport = nodemailer.createTransport } = {}) {
+  const smtpHost = String(env.SMTP_HOST || "").trim();
+  const smtpPort = Number(env.SMTP_PORT);
+  const smtpUser = String(env.SMTP_USER || "").trim();
+  const smtpPassword = String(env.SMTP_PASS || "");
+  const smtpFrom = String(env.BREVO_SENDER_EMAIL || "").trim();
 
-  const gmailUser = String(process.env.GMAIL_USER || "").trim();
-  const gmailPassword = String(process.env.GMAIL_APP_PASSWORD || "").replace(/\s/g, "");
+  const gmailUser = String(env.GMAIL_USER || "").trim();
+  const gmailPassword = String(env.GMAIL_APP_PASSWORD || "").replace(/\s/g, "");
 
   const hasConfiguredSmtp =
     smtpHost &&
@@ -22,10 +22,10 @@ export async function sendGmailEmail(message) {
   let transporter;
   let from;
   if (hasConfiguredSmtp) {
-    transporter = nodemailer.createTransport({
+    transporter = createTransport({
       host: smtpHost,
       port: smtpPort,
-      secure: process.env.SMTP_SECURE === "true",
+      secure: env.SMTP_SECURE === "true",
       auth: { user: smtpUser, pass: smtpPassword },
       requireTLS: smtpPort === 587,
       connectionTimeout: 15000,
@@ -33,11 +33,11 @@ export async function sendGmailEmail(message) {
       socketTimeout: 20000,
     });
     from = {
-      name: process.env.BREVO_SENDER_NAME || "CricketClash",
+      name: env.BREVO_SENDER_NAME || "CricketClash",
       address: smtpFrom,
     };
   } else if (gmailUser && gmailPassword) {
-    transporter = nodemailer.createTransport({
+    transporter = createTransport({
       service: "gmail",
       auth: { user: gmailUser, pass: gmailPassword },
       connectionTimeout: 15000,
@@ -58,14 +58,10 @@ export async function sendGmailEmail(message) {
       ...message,
     });
 
-    if (
-      Array.isArray(result.accepted) &&
-      !result.accepted.some(
-        (acceptedAddress) =>
-          String(acceptedAddress).toLowerCase() ===
-          String(message.to).toLowerCase()
-      )
-    ) {
+    const acceptedRecipients = Array.isArray(result.accepted)
+      ? result.accepted.map((recipient) => String(recipient?.address || recipient).trim().toLowerCase())
+      : [];
+    if (!acceptedRecipients.includes(String(message.to).trim().toLowerCase())) {
       throw Object.assign(new Error("SMTP server did not accept the recipient."), {
         code: "EMAIL_RECIPIENT_REJECTED",
       });

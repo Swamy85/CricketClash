@@ -2171,6 +2171,7 @@
     border-bottom-color: #7c2947;
   }
 }
+
 .live-feed-section { margin-bottom: 28px; }
 .live-feed-freshness { color: var(--text-muted, #777); font-size: .78rem; text-align: right; }
 .live-feed-freshness.is-stale { color: #a87522; }

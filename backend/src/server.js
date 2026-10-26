@@ -1,6 +1,10 @@
 import dotenv from "dotenv";
 import mongoose from "mongoose";
 import app from "./app.js";
+import User from "./models/User.js";
+import UsernameClaim from "./models/UsernameClaim.js";
+import PendingRegistration from "./models/PendingRegistration.js";
+import { initializeUsernameClaims } from "./services/registrationService.js";
 import { startContestDeadlineProcessor } from "./modules/contests/contestDeadlineService.js";
 import { retryDueAdminRequestNotifications } from "./services/adminRequestEmailService.js";
 import { seedTeamCatalog } from "./services/teamCatalogSeed.js";
@@ -17,6 +21,9 @@ async function startServer() {
     }
 
     await mongoose.connect(process.env.MONGODB_URI);
+    await User.createIndexes();
+    await PendingRegistration.createIndexes();
+    await initializeUsernameClaims({ User, UsernameClaim });
 
     console.log("MongoDB connected successfully.");
     await seedTeamCatalog();

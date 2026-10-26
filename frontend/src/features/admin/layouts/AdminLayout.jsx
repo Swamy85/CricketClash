@@ -20,6 +20,7 @@ const navigationItems = [
   { label: "Contests", icon: "🏆", path: "/admin/contests" },
   { label: "Deposits", icon: "↓", path: "/admin/deposits" },
   { label: "Withdrawals", icon: "₹", path: "/admin/withdrawals" },
+  { label: "Reports", icon: "▥", path: "/admin/reports" },
 ];
 
 

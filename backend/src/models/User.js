@@ -47,6 +47,19 @@ const userSchema = new mongoose.Schema(
       default: false,
     },
 
+    notificationPreferences: {
+      matchUpdates: { type: Boolean, default: true },
+      contestUpdates: { type: Boolean, default: true },
+      results: { type: Boolean, default: true },
+      announcements: { type: Boolean, default: true },
+    },
+
+    // Set atomically before the one-time new-account notification attempt.
+    registrationNotificationAttemptedAt: {
+      type: Date,
+      select: false,
+    },
+
     otpHash: {
       type: String,
       select: false,

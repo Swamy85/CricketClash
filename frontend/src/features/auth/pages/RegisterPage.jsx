@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -15,12 +16,15 @@ export default function RegisterPage() {
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [errorCode, setErrorCode] = useState("");
 
   function handleChange(event) {
     setForm((previous) => ({
       ...previous,
       [event.target.name]: event.target.value,
     }));
+    setError("");
+    setErrorCode("");
   }
 
   async function handleSubmit(event) {
@@ -29,6 +33,7 @@ export default function RegisterPage() {
     if (busy) return;
 
     setError("");
+    setErrorCode("");
 
     if (form.password !== form.confirmPassword) {
       setError("Passwords do not match.");
@@ -43,21 +48,19 @@ export default function RegisterPage() {
     setBusy(true);
 
     try {
-      // Send registration data through the authentication service.
       const data = await registerUser(form);
+      const pendingEmail = (
+        data.email || form.email
+      ).trim().toLowerCase();
 
-      const pendingEmail =
-        data.email || form.email.trim().toLowerCase();
-
-      // Preserve the existing OTP verification flow.
       sessionStorage.setItem("cc_pending_email", pendingEmail);
       sessionStorage.setItem("cc_registration_pending", "true");
-
+      sessionStorage.setItem("cc_verification_mode", "registration");
+      sessionStorage.setItem("cc_otp_delivery_sent", String(data.sent === true));
       sessionStorage.setItem(
         "cc_otp_expires_at",
         String(Date.now() + 5 * 60 * 1000)
       );
-
       sessionStorage.setItem(
         "cc_otp_resend_at",
         String(Date.now() + 60 * 1000)
@@ -65,12 +68,32 @@ export default function RegisterPage() {
 
       navigate("/verify-email", {
         replace: true,
-        state: { email: pendingEmail },
+        state: {
+          email: pendingEmail,
+          mode: "registration",
+        },
       });
     } catch (err) {
-      setError(
-        err.message || "Something went wrong. Please try again."
-      );
+      setErrorCode(err.code || "");
+
+      if (err.code === "EMAIL_DELIVERY_FAILED") {
+        setError(
+          "We couldn't send your verification email. Please retry using the same email address."
+        );
+      } else if (
+        err.code === "LEGACY_VERIFICATION_REQUIRED" ||
+        err.code === "EMAIL_NOT_VERIFIED"
+      ) {
+        setError(
+          "This account already exists but is not verified. Sign in to request a verification code."
+        );
+      } else if (err.code === "ACCOUNT_ALREADY_VERIFIED") {
+        setError(
+          "This email already has a verified account. Please sign in."
+        );
+      } else {
+        setError(err.message || "Something went wrong. Please try again.");
+      }
     } finally {
       setBusy(false);
     }
@@ -160,6 +183,23 @@ export default function RegisterPage() {
           {error && (
             <div className="auth-error" role="alert">
               {error}
+              {(
+                errorCode === "ACCOUNT_ALREADY_VERIFIED" ||
+                errorCode === "LEGACY_VERIFICATION_REQUIRED" ||
+                errorCode === "EMAIL_NOT_VERIFIED"
+              ) && (
+                <>
+                  {" "}
+                  <Link
+                    to="/login"
+                    state={{ email: form.email.trim().toLowerCase() }}
+                  >
+                    {errorCode === "ACCOUNT_ALREADY_VERIFIED"
+                      ? "Sign in"
+                      : "Sign in to verify your existing account"}
+                  </Link>
+                </>
+              )}
             </div>
           )}
 
@@ -175,7 +215,7 @@ export default function RegisterPage() {
                 onChange={handleChange}
                 autoComplete="username"
                 minLength={3}
-                maxLength={30}
+                maxLength={24}
                 required
               />
             </div>
@@ -237,8 +277,7 @@ export default function RegisterPage() {
           </form>
 
           <p className="split-auth-switch">
-            Already have an account?{" "}
-            <Link to="/login">Login</Link>
+            Already have an account? <Link to="/login">Login</Link>
           </p>
 
           <p className="split-auth-terms">

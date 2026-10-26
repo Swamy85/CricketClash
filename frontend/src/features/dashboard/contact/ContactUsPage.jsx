@@ -54,7 +54,7 @@ export default function ContactUsPage() {
       <header className="cc-feature-heading cc-contact-heading">
         <div>
           <span className="cc-feature-eyebrow">WE’RE HERE TO HELP</span>
-          <h1>Contact Us</h1>
+          <h1>Help & Support</h1>
           <p>Reach the CricketClash support team using the contact option that works for you.</p>
         </div>
         <div className="cc-contact-availability" role="status">

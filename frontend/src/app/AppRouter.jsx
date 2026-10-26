@@ -21,6 +21,7 @@ import MyContestsPage from "../features/dashboard/contests/MyContestsPage";
 import ContestActivityPage from "../features/dashboard/contests/ContestActivityPage";
 import ContestLeaderboardPage from "../features/dashboard/contests/ContestLeaderboardPage";
 import ProfilePage from "../features/dashboard/profile/ProfilePage";
+import SettingsPage from "../features/dashboard/settings/SettingsPage";
 import WalletPage from "../features/dashboard/wallet/WalletPage";
 import ContactUsPage from "../features/dashboard/contact/ContactUsPage";
 
@@ -35,6 +36,7 @@ import AdminContestsPage from "../features/admin/pages/AdminContestsPage";
 import AdminProfilePage from "../features/admin/pages/AdminProfilePage";
 import AdminWithdrawalsPage from "../features/admin/pages/AdminWithdrawalsPage";
 import AdminDepositsPage from "../features/admin/pages/AdminDepositsPage";
+import AdminReportsPage from "../features/admin/pages/AdminReportsPage";
 
 import ProtectedRoute from "./guards/ProtectedRoute";
 import GuestOnlyRoute from "./guards/GuestOnlyRoute";
@@ -155,6 +157,8 @@ export default function AppRouter() {
           element={<AdminDepositsPage />}
           />
 
+          <Route path="reports" element={<AdminReportsPage />} />
+
         </Route>
 
         {/* Protected player area */}
@@ -200,6 +204,8 @@ export default function AppRouter() {
               path="profile"
               element={<ProfilePage />}
             />
+
+            <Route path="settings" element={<SettingsPage />} />
 
             <Route
               path="contact"

@@ -17,9 +17,11 @@ import cookieParser from "cookie-parser";
 
 import crypto from "node:crypto";
 
-import nodemailer from "nodemailer";
+import { sendGmailEmail } from "./services/gmailService.js";
 
 import User from "./models/User.js";
+import PendingRegistration from "./models/PendingRegistration.js";
+import UsernameClaim from "./models/UsernameClaim.js";
 
 import LoginSession from "./models/LoginSession.js";
 import Match from "./models/Match.js";
@@ -28,6 +30,10 @@ import WalletTransaction from "./models/WalletTransaction.js";
 import { sendPasswordResetOtpEmail } from "./services/passwordResetEmailService.js";
 import { sendAdminPasswordResetOtpEmail } from "./services/adminPasswordResetEmailService.js";
 import { createAdminPasswordResetService } from "./services/adminPasswordResetService.js";
+import { createRegistrationService, makeOtp, hashOtp } from "./services/registrationService.js";
+import { sendRegistrationNotificationEmail } from "./services/registrationNotificationEmailService.js";
+import { findPlayerWithValidPassword } from "./services/playerCredentialService.js";
+import { changeAccountPassword, normalizeNotificationPreferences, updateNotificationPreferences } from "./services/accountSettingsService.js";
 
 import requireAdmin from "./middleware/requireAdmin.js";
 import { jsonBodyParser, rejectUnsafeRequestKeys, unexpectedFields } from "./middleware/requestSafety.js";
@@ -48,6 +54,7 @@ import adminWalletRoutes from "./modules/wallet/adminWalletRoutes.js";
 
 import contestRoutes from "./modules/contests/contestRoutes.js";
 import adminContestRoutes from "./modules/contests/adminContestRoutes.js";
+import adminReportRoutes from "./routes/adminReportRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
 import teamRoutes from "./modules/teams/teamRoutes.js";
 import publicTeamRoutes from "./modules/teams/publicTeamRoutes.js";
@@ -235,7 +242,7 @@ function generateOTP() {
 
   // Generates a cryptographically secure six-digit OTP.
 
-  return crypto.randomInt(100000, 1000000).toString();
+  return makeOtp();
 
 }
 
@@ -243,7 +250,7 @@ function generateOTP() {
 
 function hashOTP(otp) {
 
-  return crypto.createHash("sha256").update(otp).digest("hex");
+  return hashOtp(JWT_SECRET, otp);
 
 }
 
@@ -274,6 +281,7 @@ function safeUser(user) {
     createdAt: user.createdAt,
 
     lastActivityAt: user.lastActivityAt,
+    notificationPreferences: normalizeNotificationPreferences(user.notificationPreferences),
 
   };
 
@@ -426,214 +434,40 @@ function clearAuthCookie(res) {
 
 
 async function sendOTPEmail(email, username, otp) {
-
-  // Validate SMTP configuration before attempting delivery.
-
-  const {
-
-    SMTP_HOST,
-
-    SMTP_PORT,
-
-    SMTP_USER,
-
-    SMTP_PASS,
-
-    BREVO_SENDER_EMAIL,
-
-    BREVO_SENDER_NAME,
-
-  } = process.env;
-
-
-
-  if (
-
-    !SMTP_HOST ||
-
-    !SMTP_PORT ||
-
-    !SMTP_USER ||
-
-    !SMTP_PASS ||
-
-    !BREVO_SENDER_EMAIL
-
-  ) {
-
-    throw new Error(
-
-      "Missing SMTP configuration. Check your backend .env file."
-
-    );
-
-  }
-
-
-
-  // Port 587 uses STARTTLS; secure is false initially.
-
-  const transporter = nodemailer.createTransport({
-
-    host: SMTP_HOST,
-
-    port: Number(SMTP_PORT),
-
-    secure: process.env.SMTP_SECURE === "true",
-
-    auth: {
-
-      user: SMTP_USER,
-
-      pass: SMTP_PASS,
-
-    },
-
-    requireTLS: Number(SMTP_PORT) === 587,
-
-    connectionTimeout: 15000,
-
-    greetingTimeout: 15000,
-
-    socketTimeout: 20000,
-
-  });
-
-
-
-  // Escape the username before inserting it into HTML.
-
-  const safeUsername = String(username).replace(/[&<>"']/g, (char) => {
-
-    const entities = {
-
-      "&": "&amp;",
-
-      "<": "&lt;",
-
-      ">": "&gt;",
-
-      '"': "&quot;",
-
-      "'": "&#39;",
-
-    };
-
-
-
-    return entities[char];
-
-  });
-
-
-
   try {
-
-    const info = await transporter.sendMail({
-
-      from: {
-
-        name: BREVO_SENDER_NAME || "CricketClash",
-
-        address: BREVO_SENDER_EMAIL,
-
-      },
-
+    const result = await sendGmailEmail({
       to: email,
-
       subject: "Verify your CricketClash email",
-
       text: `Hello ${username}, your CricketClash verification code is ${otp}. It expires in 5 minutes.`,
-
-      html: `
-
-        <!DOCTYPE html>
-
-        <html>
-
-          <body style="font-family:Arial,sans-serif;color:#222;">
-
-            <div style="max-width:520px;margin:auto;padding:24px;">
-
-              <h2 style="color:#7d1833;">Welcome to CricketClash!</h2>
-
-              <p>Hello ${safeUsername},</p>
-
-              <p>Use this verification code to activate your account:</p>
-
-
-
-              <div style="
-
-                padding:18px;
-
-                background:#f8f0f2;
-
-                color:#7d1833;
-
-                font-size:32px;
-
-                font-weight:bold;
-
-                letter-spacing:8px;
-
-                text-align:center;
-
-              ">${otp}</div>
-
-
-
-              <p>This code expires in 5 minutes.</p>
-
-              <p>If you did not request this code, ignore this email.</p>
-
-              <p>— CricketClash Team</p>
-
-            </div>
-
-          </body>
-
-        </html>
-
-      `,
-
+      html: `<div style="font-family:Arial,sans-serif;color:#222;max-width:520px;margin:auto;padding:24px"><h2 style="color:#7d1833">Welcome to CricketClash!</h2><p>Hello ${escapeHTML(username)},</p><p>Use this verification code to activate your account:</p><div style="padding:18px;background:#f8f0f2;color:#7d1833;font-size:32px;font-weight:bold;letter-spacing:8px;text-align:center">${otp}</div><p>This code expires in 5 minutes.</p><p>If you did not request this code, ignore this email.</p><p>CricketClash Team</p></div>`,
     });
-
-
-
-    console.log("OTP email accepted by SMTP server:", info.messageId);
-
-
-
-    return info;
-
+    console.info("Verification email accepted by SMTP provider.");
+    return result;
   } catch (error) {
-
-    // Log diagnostic information without exposing SMTP credentials.
-
-    console.error("SMTP email delivery failed:", {
-
-      code: error.code,
-
-      responseCode: error.responseCode,
-
-      command: error.command,
-
+    console.error("Verification email delivery failed.", {
+      code: safeErrorCode(error),
+      responseCode: Number.isInteger(error?.responseCode) ? error.responseCode : undefined,
     });
-
-
-
-    throw new Error("Could not send verification email.");
-
-  } finally {
-
-    transporter.close();
-
+    throw Object.assign(new Error("Could not send verification email."), {
+      code: error?.code === "EMAIL_CONFIGURATION" ? "EMAIL_CONFIGURATION" : "EMAIL_DELIVERY_FAILED",
+    });
   }
-
 }
 
-
+const registrationService = createRegistrationService({
+  User,
+  PendingRegistration,
+  UsernameClaim,
+  sendOtpEmail: sendOTPEmail,
+  sendRegistrationNotification: (user) => sendRegistrationNotificationEmail(user),
+  logNotificationFailure: (error) => console.error("New-user notification delivery failed.", { code: safeErrorCode(error) }),
+  hashOtp: (otp) => hashOTP(otp),
+  makeUserId: generatePlayerId,
+  otpExpiryMs: OTP_EXPIRY_MS,
+  resendCooldownMs: OTP_RESEND_COOLDOWN_MS,
+  maxOtpAttempts: MAX_OTP_ATTEMPTS,
+  otpBlockMs: OTP_BLOCK_MS,
+});
 
 
 
@@ -657,7 +491,7 @@ const authenticate = createAuthenticateMiddleware({
 });
 
 // --------------------------------
-//  REQUIRE ADMIN 
+//  REQUIRE ADMIN
 //----------------------------------------
 
 
@@ -744,266 +578,43 @@ app.get("/api/admin/dashboard", authenticate, requireAdmin, async (req, res) => 
 // POST /api/auth/register
 
 // --------------------------------------------------
-
-
-
+// 9. Register a new account
+// POST /api/auth/register
+// --------------------------------------------------
 app.post("/api/auth/register", registrationRateLimit, async (req, res) => {
-
   if (rejectUnexpectedBodyFields(req, res, ["username", "email", "password", "confirmPassword"])) return;
-
   try {
-
-    const {
-
-      username: rawUsername,
-
-      email: rawEmail,
-
-      password,
-
-      confirmPassword,
-
-    } = req.body || {};
-
-
-
+    const { username: rawUsername, email: rawEmail, password, confirmPassword } = req.body || {};
     const username = String(rawUsername || "").trim();
-
     const email = normalizeEmail(rawEmail);
 
-
-
     if (!username || !email || !password || !confirmPassword) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message: "Please fill in all required fields.",
-
-      });
-
+      return res.status(400).json({ success: false, message: "Please fill in all required fields." });
     }
-
-
-
     if (!/^[a-zA-Z0-9\_.-]{3,24}$/.test(username)) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message:
-
-          "Username must be 3–24 characters and contain only letters, numbers, dots, underscores, or hyphens.",
-
-      });
-
+      return res.status(400).json({ success: false, message: "Username must be 3-24 characters and contain only letters, numbers, dots, underscores, or hyphens." });
     }
-
-
-
-    if (!isValidEmail(email)) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message: "Please enter a valid email address.",
-
-      });
-
-    }
-
-
-
+    if (!isValidEmail(email)) return res.status(400).json({ success: false, message: "Please enter a valid email address." });
     if (typeof password !== "string" || password.length < 8 || password.length > 72 || Buffer.byteLength(password, "utf8") > 72) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message: "Password must be between 8 and 72 characters.",
-
-      });
-
+      return res.status(400).json({ success: false, message: "Password must be between 8 and 72 characters." });
     }
-
-
-
-    if (password !== confirmPassword) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message: "Passwords do not match.",
-
-      });
-
-    }
-
-
-
-    let user = await User.findOne({ email }).select(
-
-      "+otpHash +otpExpiresAt +otpLastSentAt +otpAttempts +otpBlockedUntil"
-
-    );
-
-
-
-    if (user?.isEmailVerified) {
-      return res.status(409).json({ success: false, message: "Unable to register with these details. Sign in or use another email address." });
-
-    }
-
-
-
-    if (user?.otpBlockedUntil && user.otpBlockedUntil > new Date()) {
-
-      return res.status(429).json({
-
-        success: false,
-
-        message: "Too many verification attempts. Please try again later.",
-
-      });
-
-    }
-
-
-
-    if (user?.otpLastSentAt && Date.now() - user.otpLastSentAt.getTime() < OTP_RESEND_COOLDOWN_MS) {
-      return res.status(202).json({ success: true, message: REGISTRATION_GENERIC_MESSAGE, email });
-    }
-
-
+    if (password !== confirmPassword) return res.status(400).json({ success: false, message: "Passwords do not match." });
 
     const passwordHash = await bcrypt.hash(password, 12);
-
-    const otp = generateOTP();
-
-
-
-    if (!user) {
-
-      user = new User({
-
-        username,
-
-        email,
-
-        passwordHash,
-
-        role: "user",
-
-        isEmailVerified: false,
-
-      });
-
-    } else {
-
-      // Update the unverified account with the latest registration details.
-
-      user.username = username;
-
-      user.passwordHash = passwordHash;
-
-    }
-
-
-
-    user.otpHash = hashOTP(otp);
-
-    user.otpExpiresAt = new Date(Date.now() + OTP_EXPIRY_MS);
-
-    user.otpLastSentAt = new Date();
-
-    user.otpAttempts = 0;
-
-    user.otpBlockedUntil = undefined;
-
-
-
-    await user.save();
-
-
-
-    try {
-
-      await sendOTPEmail(email, username, otp);
-
-    } catch (emailError) {
-
-      // Remove the unusable OTP if delivery failed.
-
-      user.otpHash = undefined;
-
-      user.otpExpiresAt = undefined;
-
-      user.otpLastSentAt = undefined;
-
-      await user.save();
-
-
-
-      return res.status(502).json({
-
-        success: false,
-
-        message:
-
-          "We could not send the verification email. Check the email configuration and try again.",
-
-      });
-
-    }
-
-
-
-    return res.status(202).json({
-
-      success: true,
-
-      message: REGISTRATION_GENERIC_MESSAGE,
-
-      email,
-
-    });
-
+    const result = await registrationService.register({ username, email, passwordHash, otp: generateOTP() });
+    if (result.status !== 202) return res.status(result.status).json({ success: false, code: result.code, message: result.message });
+    return res.status(202).json({ success: true, message: REGISTRATION_GENERIC_MESSAGE, email: result.email, sent: result.sent === true });
   } catch (error) {
-
     console.error("Registration request failed.", { code: safeErrorCode(error) });
-
-
-
     if (error.code === 11000) {
-      return res.status(409).json({ success: false, message: "Unable to register with these details. Sign in or use another email address." });
-
+      const key = Object.keys(error.keyPattern || {})[0];
+      const field = key === "username" || key === "usernameKey" ? "username" : "email address";
+      return res.status(409).json({ success: false, code: "REGISTRATION_CONFLICT", message: `That ${field} is already in use. Please choose another.` });
     }
-
-
-
-    return res.status(500).json({
-
-      success: false,
-
-      message: "Registration failed. Please try again.",
-
-    });
-
+    return res.status(500).json({ success: false, message: "Registration failed. Please try again." });
   }
-
 });
 
-
-
-// --------------------------------------------------
-
-// 10. Verify OTP and activate account
-
-// POST /api/auth/verify-otp
 
 // --------------------------------------------------
 
@@ -1035,191 +646,12 @@ app.post("/api/auth/verify-otp", verificationRateLimit, async (req, res) => {
 
 
 
-    const user = await User.findOne({ email }).select(
-
-      "+otpHash +otpExpiresAt +otpAttempts +otpBlockedUntil"
-
-    );
-
-
-
-    if (!user) {
-      return res.status(400).json({ success: false, message: "Invalid or expired verification code. Request a new code." });
+    const result = await registrationService.verify(email, otp);
+    if (result.status !== 200) {
+      if (result.status === 429) res.set("Retry-After", String(Math.ceil(OTP_BLOCK_MS / 1000)));
+      return res.status(result.status).json({ success: false, code: result.code, message: result.message });
     }
-
-
-
-    if (user.isEmailVerified) {
-      return res.status(400).json({ success: false, message: "Invalid or expired verification code. Request a new code." });
-    }
-
-
-
-    if (user.otpBlockedUntil && user.otpBlockedUntil > new Date()) {
-      res.set("Retry-After", String(Math.max(1, Math.ceil((user.otpBlockedUntil.getTime() - Date.now()) / 1000))));
-      return res.status(429).json({
-
-        success: false,
-
-        message: "Too many incorrect attempts. Please try again later.",
-
-      });
-
-    }
-
-
-
-    if (
-
-      !user.otpHash ||
-
-      !user.otpExpiresAt ||
-
-      user.otpExpiresAt <= new Date()
-
-    ) {
-
-      return res.status(400).json({
-
-        success: false,
-
-        message: "Invalid or expired verification code. Request a new code.",
-
-      });
-
-    }
-
-
-
-    const submittedHash = hashOTP(otp);
-
-
-
-    // Compare hashes without an ordinary string equality comparison.
-
-    const expected = Buffer.from(user.otpHash, "hex");
-
-    const actual = Buffer.from(submittedHash, "hex");
-
-
-
-    const otpMatches =
-
-      expected.length === actual.length &&
-
-      crypto.timingSafeEqual(expected, actual);
-
-
-
-    if (!otpMatches) {
-      const attempt = nextOtpFailure(user.otpAttempts, MAX_OTP_ATTEMPTS, Date.now(), OTP_BLOCK_MS);
-      user.otpAttempts = attempt.attempts;
-      if (attempt.blocked) {
-        user.otpBlockedUntil = attempt.blockedUntil;
-        user.otpHash = undefined;
-        user.otpExpiresAt = undefined;
-      }
-
-
-
-      await user.save();
-
-
-
-      if (attempt.blocked) res.set("Retry-After", String(Math.ceil(OTP_BLOCK_MS / 1000)));
-      return res.status(attempt.blocked ? 429 : 400).json({
-        success: false,
-        code: attempt.blocked ? "OTP_COOLDOWN" : "OTP_INVALID",
-        message: attempt.blocked ? "Too many incorrect attempts. Verification is temporarily blocked." : "Invalid or expired verification code. Request a new code.",
-      });
-
-    }
-
-
-
-    // Assign a unique player ID only after successful verification.
-
-    let assigned = false;
-
-
-
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-
-      user.userId = generatePlayerId();
-
-
-
-      try {
-
-        await user.save();
-
-        assigned = true;
-
-        break;
-
-      } catch (error) {
-
-        if (error.code !== 11000) {
-
-          throw error;
-
-        }
-
-
-
-        // Retry if the generated player ID collides with an existing ID.
-
-        user.invalidate("userId");
-
-      }
-
-    }
-
-
-
-    if (!assigned) {
-
-      return res.status(500).json({
-
-        success: false,
-
-        message: "Could not assign a player ID. Please try again.",
-
-      });
-
-    }
-
-
-
-    // Clear OTP fields and activate the account.
-
-    user.isEmailVerified = true;
-
-    user.otpHash = undefined;
-
-    user.otpExpiresAt = undefined;
-
-    user.otpLastSentAt = undefined;
-
-    user.otpAttempts = 0;
-
-    user.otpBlockedUntil = undefined;
-
-
-
-    await user.save();
-
-
-
-    return res.json({
-
-      success: true,
-
-      message: "Email verified successfully. Your account is now active.",
-
-      user: safeUser(user),
-
-    });
+    return res.json({ success: true, message: "Email verified successfully. Your account is now active.", user: safeUser(result.user) });
 
   } catch (error) {
 
@@ -1253,11 +685,12 @@ app.post("/api/auth/verify-otp", verificationRateLimit, async (req, res) => {
 
 app.post("/api/auth/resend-otp", otpResendRateLimit, async (req, res) => {
 
-  if (rejectUnexpectedBodyFields(req, res, ["email"])) return;
+  if (rejectUnexpectedBodyFields(req, res, ["email", "flow"])) return;
 
   try {
 
     const email = normalizeEmail(req.body?.email);
+    const flow = req.body?.flow;
 
 
 
@@ -1273,69 +706,15 @@ app.post("/api/auth/resend-otp", otpResendRateLimit, async (req, res) => {
 
     }
 
-
-
-    const user = await User.findOne({ email }).select(
-
-      "+otpHash +otpExpiresAt +otpLastSentAt +otpAttempts +otpBlockedUntil"
-
-    );
-
-
-
-    if (!user || user.isEmailVerified || (user.otpBlockedUntil && user.otpBlockedUntil > new Date()) || (user.otpLastSentAt && Date.now() - user.otpLastSentAt.getTime() < OTP_RESEND_COOLDOWN_MS)) {
-      return res.json({ success: true, message: "If an unverified account matches this address, a verification code will be sent." });
+    if (flow !== undefined && flow !== "registration" && flow !== "legacy") {
+      return res.status(400).json({ success: false, message: "Invalid verification request." });
     }
 
 
 
-    const otp = generateOTP();
-
-
-
-    user.otpHash = hashOTP(otp);
-
-    user.otpExpiresAt = new Date(Date.now() + OTP_EXPIRY_MS);
-
-    user.otpLastSentAt = new Date();
-
-    user.otpAttempts = 0;
-
-
-
-    await user.save();
-
-
-
-    try {
-
-      await sendOTPEmail(user.email, user.username, otp);
-
-    } catch (emailError) {
-
-      user.otpHash = undefined;
-
-      user.otpExpiresAt = undefined;
-
-      user.otpLastSentAt = undefined;
-
-      await user.save();
-
-
-
-      return res.status(502).json({
-
-        success: false,
-
-        message: "Could not send a new OTP. Please try again later.",
-
-      });
-
-    }
-
-
-
-    return res.json({ success: true, message: "If an unverified account matches this address, a verification code will be sent." });
+    const result = await registrationService.resend(email, generateOTP());
+    if (result.status >= 400) return res.status(result.status).json({ success: false, code: result.code, message: result.message });
+    return res.json({ success: true, message: result.message });
 
   } catch (error) {
 
@@ -1643,7 +1022,7 @@ app.post("/api/auth/reset-password", passwordResetRateLimit, async (req, res) =>
   if (!hasStrongPassword(password)) {
     return res.status(400).json({
       success: false,
-      message: "Use 8–72 bytes with uppercase and lowercase letters, a number, and a special character.",
+      message: "Use 8-72 bytes with uppercase and lowercase letters, a number, and a special character.",
     });
   }
 
@@ -1778,31 +1157,13 @@ app.post("/api/auth/login", loginRateLimit, async (req, res) => {
 
 
 
-    // Password hash is excluded by default, so explicitly select it.
-    const user = await User.findOne({ email }).select("+passwordHash +authVersion");
-
-    if (!user) {
-      return sendLoginFailure(res, playerLoginFailures, attemptKey);
-    }
-
-    // Only regular users can log in through the player login page.
-    if (user.role === "admin") {
-      return sendLoginFailure(res, playerLoginFailures, attemptKey);
-    }
-
-
-
-    const passwordMatches = await bcrypt.compare(
-
+    const user = await findPlayerWithValidPassword({
+      User,
+      email,
       password,
-
-      user.passwordHash
-
-    );
-
-
-
-    if (!passwordMatches) {
+      comparePassword: bcrypt.compare,
+    });
+    if (!user) {
       return sendLoginFailure(res, playerLoginFailures, attemptKey);
     }
 
@@ -1997,6 +1358,65 @@ app.get("/api/auth/me", authenticate, (req, res) => {
   });
 });
 
+app.patch("/api/auth/settings/notifications", authenticate, async (req, res) => {
+  if (rejectUnexpectedBodyFields(req, res, ["preferences"])) return;
+  if (req.user.role !== "user") return res.status(403).json({ success: false, message: "Player account required." });
+  try {
+    const result = await updateNotificationPreferences({
+      User,
+      userId: req.user._id,
+      preferences: req.body?.preferences,
+    });
+    if (result.status !== 200) {
+      return res.status(result.status).json({ success: false, code: result.code, message: result.message });
+    }
+    return res.json({ success: true, preferences: result.preferences });
+  } catch (error) {
+    console.error("Notification preferences update failed.", { code: safeErrorCode(error) });
+    return res.status(500).json({ success: false, message: "Unable to save notification preferences." });
+  }
+});
+
+app.patch("/api/auth/change-password", authenticate, async (req, res) => {
+  if (rejectUnexpectedBodyFields(req, res, ["currentPassword", "newPassword", "confirmPassword"])) return;
+  if (req.user.role !== "user") return res.status(403).json({ success: false, message: "Player account required." });
+  const { currentPassword, newPassword, confirmPassword } = req.body || {};
+  if (typeof currentPassword !== "string" || !currentPassword) {
+    return res.status(400).json({ success: false, message: "Enter your current password." });
+  }
+  if (typeof newPassword !== "string" || newPassword.length < 8 || newPassword.length > 72 || Buffer.byteLength(newPassword, "utf8") > 72) {
+    return res.status(400).json({ success: false, message: "New password must be between 8 and 72 characters." });
+  }
+  if (newPassword !== confirmPassword) {
+    return res.status(400).json({ success: false, message: "New password and confirmation do not match." });
+  }
+
+  try {
+    const result = await changeAccountPassword({
+      User,
+      LoginSession,
+      user: req.user,
+      session: req.authSession,
+      currentPassword,
+      newPassword,
+      comparePassword: bcrypt.compare,
+      hashPassword: (password) => bcrypt.hash(password, 12),
+    });
+    if (result.status !== 200) {
+      return res.status(result.status).json({ success: false, code: result.code, message: result.message });
+    }
+    return res.json({
+      success: true,
+      currentSessionPreserved: result.currentSessionPreserved,
+      message: result.currentSessionPreserved
+        ? "Password updated. Other active sessions have been signed out."
+        : "Password updated. Please sign in again to continue.",
+    });
+  } catch (error) {
+    console.error("Account password change failed.", { code: safeErrorCode(error) });
+    return res.status(500).json({ success: false, message: "Unable to change your password. Please try again." });
+  }
+});
 
 // --------------------------------------------------
 // 14. Record authenticated user activity
@@ -2093,6 +1513,8 @@ app.use(
   requireAdmin,
   adminContestRoutes
 );
+
+app.use("/api/admin/reports", authenticate, requireAdmin, adminReportRoutes);
 
 // --------------------------------------------------
 

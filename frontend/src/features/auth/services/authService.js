@@ -122,6 +122,20 @@ export async function getCurrentUser(options = {}) {
   return authRequest("/api/auth/me", { method: "GET", cache: "no-store", ...options });
 }
 
+export async function saveNotificationPreferences(preferences) {
+  return authRequest("/api/auth/settings/notifications", {
+    method: "PATCH",
+    body: JSON.stringify({ preferences }),
+  });
+}
+
+export async function changeAccountPassword({ currentPassword, newPassword, confirmPassword }) {
+  return authRequest("/api/auth/change-password", {
+    method: "PATCH",
+    body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
+  });
+}
+
 export async function recordSessionActivity() {
   return authRequest("/api/auth/activity", { method: "POST" });
 }
