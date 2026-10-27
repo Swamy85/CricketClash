@@ -1,8 +1,8 @@
 
 import { Router } from "express";
-import nodemailer from "nodemailer";
 import SupportRequest from "../models/SupportRequest.js";
 import { unexpectedFields } from "../middleware/requestSafety.js";
+import { sendGmailEmail } from "../services/gmailService.js";
 
 const router = Router();
 
@@ -171,107 +171,50 @@ router.post("/", async (req, res) => {
     let notificationSent = false;
 
     try {
-      const {
-        SMTP_HOST,
-        SMTP_PORT,
-        SMTP_USER,
-        SMTP_PASS,
-        BREVO_SENDER_EMAIL,
-        BREVO_SENDER_NAME,
-      } = process.env;
+      const safeName = escapeHtml(cleanName);
+      const safeEmail = escapeHtml(cleanEmail);
+      const safeCategory = escapeHtml(cleanCategory);
+      const safeSubject = escapeHtml(cleanSubject);
 
-      if (
-        !SMTP_HOST ||
-        !SMTP_PORT ||
-        !SMTP_USER ||
-        !SMTP_PASS ||
-        !BREVO_SENDER_EMAIL
-      ) {
-        throw new Error(
-          "SMTP configuration is incomplete."
-        );
-      }
+      const safeMessage = escapeHtml(cleanMessage)
+        .replace(/\r\n/g, "\n")
+        .replace(/\n/g, "<br>");
 
-      const port = Number(SMTP_PORT);
-
-      const transporter = nodemailer.createTransport({
-        host: SMTP_HOST,
-        port,
-        secure:
-          process.env.SMTP_SECURE === "true",
-        auth: {
-          user: SMTP_USER,
-          pass: SMTP_PASS,
+      await sendGmailEmail({
+        to: SUPPORT_EMAIL,
+        replyTo: {
+          name: cleanName,
+          address: cleanEmail,
         },
-        requireTLS: port === 587,
-        connectionTimeout: 15000,
-        greetingTimeout: 15000,
-        socketTimeout: 20000,
+        subject: `[CricketClash Support] ${cleanSubject}`,
+        text: [
+          "New CricketClash support request",
+          "",
+          `Request ID: ${supportRequest._id}`,
+          `Name: ${cleanName}`,
+          `Email: ${cleanEmail}`,
+          `Category: ${cleanCategory}`,
+          `Subject: ${cleanSubject}`,
+          "",
+          "Message:",
+          cleanMessage,
+        ].join("\n"),
+        html: `
+          <div style="font-family:Arial,sans-serif;color:#34252a;max-width:640px;margin:auto;padding:24px">
+            <h2 style="color:#681b32">New CricketClash Support Request</h2>
+            <p><strong>Request ID:</strong> ${supportRequest._id}</p>
+            <p><strong>Name:</strong> ${safeName}</p>
+            <p><strong>Email:</strong> ${safeEmail}</p>
+            <p><strong>Category:</strong> ${safeCategory}</p>
+            <p><strong>Subject:</strong> ${safeSubject}</p>
+            <div style="background:#faf4f6;border:1px solid #eadde2;border-radius:8px;padding:16px;line-height:1.7">
+              ${safeMessage}
+            </div>
+          </div>
+        `,
       });
 
-      try {
-        const safeName = escapeHtml(cleanName);
-        const safeEmail = escapeHtml(cleanEmail);
-        const safeCategory = escapeHtml(cleanCategory);
-        const safeSubject = escapeHtml(cleanSubject);
-
-        const safeMessage = escapeHtml(cleanMessage)
-          .replace(/\r\n/g, "\n")
-          .replace(/\n/g, "<br>");
-
-        await transporter.sendMail({
-          from: {
-            name:
-              BREVO_SENDER_NAME ||
-              "CricketClash Support",
-            address: BREVO_SENDER_EMAIL,
-          },
-
-          to: SUPPORT_EMAIL,
-
-          replyTo: {
-            name: cleanName,
-            address: cleanEmail,
-          },
-
-          subject: `[CricketClash Support] ${cleanSubject}`,
-
-          text: [
-            "New CricketClash support request",
-            "",
-            `Request ID: ${supportRequest._id}`,
-            `Name: ${cleanName}`,
-            `Email: ${cleanEmail}`,
-            `Category: ${cleanCategory}`,
-            `Subject: ${cleanSubject}`,
-            "",
-            "Message:",
-            cleanMessage,
-          ].join("\n"),
-
-          html: `
-            <div style="font-family:Arial,sans-serif;color:#34252a;max-width:640px;margin:auto;padding:24px">
-              <h2 style="color:#681b32">
-                New CricketClash Support Request
-              </h2>
-
-              <p><strong>Request ID:</strong> ${supportRequest._id}</p>
-              <p><strong>Name:</strong> ${safeName}</p>
-              <p><strong>Email:</strong> ${safeEmail}</p>
-              <p><strong>Category:</strong> ${safeCategory}</p>
-              <p><strong>Subject:</strong> ${safeSubject}</p>
-
-              <div style="background:#faf4f6;border:1px solid #eadde2;border-radius:8px;padding:16px;line-height:1.7">
-                ${safeMessage}
-              </div>
-            </div>
-          `,
-        });
-
-        notificationSent = true;
-      } finally {
-        transporter.close();
-      }
+      notificationSent = true;
     } catch (emailError) {
       // The request is already saved even if SMTP fails.
       console.error(

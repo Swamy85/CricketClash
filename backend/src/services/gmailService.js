@@ -40,6 +40,14 @@ export async function sendGmailEmail(message, {
         },
         to: [{ email: String(message.to).trim() }],
         subject: message.subject,
+        ...(message.replyTo ? { replyTo: {
+          email: String(typeof message.replyTo === "string"
+            ? message.replyTo
+            : message.replyTo.address || message.replyTo.email || "").trim(),
+          ...(typeof message.replyTo === "object" && message.replyTo.name
+            ? { name: String(message.replyTo.name).trim() }
+            : {}),
+        } } : {}),
         ...(message.html ? { htmlContent: message.html } : {}),
         ...(message.text ? { textContent: message.text } : {}),
       }),
