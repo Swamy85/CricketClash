@@ -33,11 +33,11 @@
 .cc-live-toolbar {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  gap: 14px;
-  margin: 18px 0 16px;
+  align-items: flex-end;
+  gap: 16px;
+  margin: 20px 0 18px;
 }
-.cc-live-tabs, .cc-live-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.cc-live-tabs, .cc-live-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
 .cc-live-tabs { padding: 4px; border: 1px solid var(--live-border); border-radius: 12px; background: #f8f6f6; }
 .cc-live-tabs button {
   display: inline-flex;
@@ -56,10 +56,13 @@
 .cc-live-tabs button.active { color: #fff; background: var(--live-accent); box-shadow: 0 2px 5px #7d183329; }
 .cc-live-tabs button span { min-width: 19px; padding: 2px 5px; border-radius: 999px; color: #76666c; background: #ebe5e7; font-size: .69rem; text-align: center; }
 .cc-live-tabs button.active span { color: var(--live-accent); background: #fff; }
-.cc-live-controls { gap: 7px; }
+.cc-live-controls { justify-content: flex-end; gap: 10px; }
+.cc-live-controls label { display: flex; min-width: 0; flex-direction: column; gap: 5px; }
+.cc-live-tournament-filter > span { color: var(--live-muted); font-size: .68rem; font-weight: 750; line-height: 1; }
 .cc-live-controls input, .cc-live-controls select {
   height: 38px;
-  padding: 0 11px;
+  min-width: 0;
+  padding: 0 12px;
   border: 1px solid var(--live-border);
   border-radius: 9px;
   outline: none;
@@ -68,7 +71,9 @@
   font: inherit;
   font-size: .79rem;
 }
-.cc-live-controls input { width: 205px; }
+.cc-live-controls input { width: 215px; }
+.cc-live-tournament-filter select { width: 205px; }
+.cc-live-sort-filter select { width: 145px; }
 .cc-live-controls input:focus, .cc-live-controls select:focus { border-color: #b8798b; box-shadow: 0 0 0 3px #7d183312; }
 .cc-live-controls .cc-button { min-height: 38px; padding: 0 13px; border-radius: 9px; font-size: .79rem; }
 
@@ -111,6 +116,10 @@
 .cc-live-contests-link, .cc-live-admin-action { display: block; width: 100%; margin-top: 12px; padding: 9px 11px; border: 1px solid #e4d2d8; border-radius: 8px; color: var(--live-accent); background: #fff; text-align: center; text-decoration: none; font: inherit; font-size: .76rem; font-weight: 750; cursor: pointer; }
 .cc-live-contests-link:hover, .cc-live-admin-action:hover { border-color: var(--live-accent); color: #fff; background: var(--live-accent); }
 .cc-live-admin-action:disabled { cursor: wait; opacity: .6; }
+.cc-live-publish-action { border-color: var(--live-accent); color: #fff; background: var(--live-accent); font-weight: 850; }
+.cc-live-publish-action:hover:not(:disabled) { border-color: #5f1025; background: #5f1025; }
+.cc-live-published-state { display: inline-block; margin-top: 12px; padding: 6px 10px; border-radius: 999px; color: #266a3a; background: #eaf6ed; font-size: .72rem; font-weight: 850; }
+.cc-live-publish-hint { margin: 7px 0 0; color: var(--live-muted); font-size: .69rem; line-height: 1.4; }
 .cc-live-scorecard { margin-top: 12px; border-top: 1px solid #f0ebed; padding-top: 10px; }
 .cc-live-scorecard summary { color: var(--live-accent); font-size: .76rem; font-weight: 750; cursor: pointer; }
 .cc-live-innings { margin-top: 12px; }
@@ -133,7 +142,8 @@
   .cc-live-tabs { width: max-content; max-width: 100%; overflow-x: auto; }
   .cc-live-tabs button { padding: 8px 10px; }
   .cc-live-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
-  .cc-live-controls label:first-child { grid-column: 1 / -1; }
+  .cc-live-controls .cc-live-search-filter, .cc-live-controls > .cc-button { grid-column: 1 / -1; }
   .cc-live-controls input { width: 100%; }
+  .cc-live-tournament-filter select, .cc-live-sort-filter select { width: 100%; }
   .cc-live-controls .cc-button { min-height: 38px; }
 }

@@ -18,8 +18,8 @@ const TIERS = {
   ELITE: { label: "Elite", color: "elite" }, CHAMPION: { label: "Champion", color: "champion" },
 };
 
-function formatCoins(value) {
-  return `${Number(value ?? 0).toLocaleString("en-IN")} coins`;
+function formatContestAmount(value) {
+  return Number(value ?? 0).toLocaleString("en-IN");
 }
 
 function calculatedPrizePool(contest) {
@@ -360,7 +360,7 @@ export default function MyContestsPage() {
                   return <article className="cc-contest-card cc-lobby-contest-card" key={contest._id}>
                     <div className="cc-contest-card-top"><span className={`cc-contest-tier ${tier.color}`}>{tier.label}</span><span className="cc-contest-status open">{waitingForOpponent ? "1 slot left" : "Open"}</span></div>
                     <div className="cc-lobby-contest-title"><h3>{tier.label} Contest</h3><span>Head-to-head</span></div>
-                    <div className="cc-lobby-contest-metrics"><div><span>Entry fee</span><strong>{formatCoins(contest.entryFee)}</strong></div><div className="prize"><span>Prize pool</span><strong>{formatCoins(calculatedPrizePool(contest))}</strong></div></div>
+                    <div className="cc-lobby-contest-metrics"><div><span>Entry fee</span><strong>{formatContestAmount(contest.entryFee)}</strong></div><div className="prize"><span>Prize pool</span><strong>{formatContestAmount(calculatedPrizePool(contest))}</strong></div></div>
                     <div className="cc-lobby-contest-slots"><div><span>Total</span><strong>{TOTAL_SLOTS}</strong></div><div><span>Joined</span><strong>{players.length}</strong></div><div><span>Available</span><strong>{availableSlots}</strong></div></div>
                     {(openSlot || waitingForOpponent) && <div className="cc-contest-join">
                       <label htmlFor={`team-${contest._id}`}>Pick your team</label>

@@ -24,11 +24,14 @@ export function selectVisibleOpenContests(contests, now = new Date()) {
     const expiresAt = new Date(contest.expiresAt).getTime();
     const matchStart = new Date(match?.startTime).getTime();
     return match
+      && match.published === true
       && match.status === "upcoming"
+      && !["live", "result"].includes(String(match.providerState || "").toLowerCase())
       && Number.isFinite(matchStart)
       && matchStart > now.getTime()
       && Number.isFinite(expiresAt)
       && expiresAt > now.getTime()
+      && !contest.entryClosedAt
       && !["SETTLED", "REFUNDED"].includes(contest.settlementStatus)
       && ["OPEN", "WAITING"].includes(contest.status);
   }).sort((left, right) =>

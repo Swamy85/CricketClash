@@ -23,7 +23,6 @@ import ContestLeaderboardPage from "../features/dashboard/contests/ContestLeader
 import ProfilePage from "../features/dashboard/profile/ProfilePage";
 import SettingsPage from "../features/dashboard/settings/SettingsPage";
 import WalletPage from "../features/dashboard/wallet/WalletPage";
-import ContactUsPage from "../features/dashboard/contact/ContactUsPage";
 
 import AdminLoginPage from "../features/admin/pages/AdminLoginPage";
 import AdminForgotPasswordPage from "../features/admin/pages/AdminForgotPasswordPage";
@@ -208,9 +207,10 @@ export default function AppRouter() {
             <Route path="settings" element={<SettingsPage />} />
 
             <Route
-              path="contact"
-              element={<ContactUsPage />}
+              path="support"
+              element={<SupportPage />}
             />
+            <Route path="contact" element={<Navigate to="/dashboard/support" replace />} />
           </Route>
         </Route>
 

@@ -6,11 +6,12 @@ const telegramAnnouncementSchema = new mongoose.Schema(
     text: { type: String, required: true, maxlength: 4096 },
     status: {
       type: String,
-      enum: ["PROCESSING", "SENT", "FAILED", "UNKNOWN"],
+      enum: ["PENDING", "PROCESSING", "SENT", "FAILED", "UNKNOWN"],
       required: true,
     },
     telegramMessageId: { type: Number, default: null },
     errorCode: { type: String, default: null, maxlength: 80 },
+    nextAttemptAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

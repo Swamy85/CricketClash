@@ -2,11 +2,13 @@
 import {
   listMatches,
   listAdminMatches,
+  listAdminMatchPublicationStatus,
   getAdminMatchCounts,
   getMatchById,
   createMatch,
   updateMatch,
   deleteMatch,
+  publishAdminMatch,
 } from "./matchService.js";
 
 import { validateMatch } from "./matchValidation.js";
@@ -53,6 +55,36 @@ export async function getAdminMatches(req, res) {
     return res.json({ success: true, matches, counts });
   } catch (error) {
     return sendError(res, error, "Could not fetch matches.");
+  }
+}
+
+export async function getAdminMatchPublicationStatus(req, res) {
+  try {
+    const matches = await listAdminMatchPublicationStatus();
+    return res.json({ success: true, matches });
+  } catch (error) {
+    return sendError(res, error, "Could not fetch match publication status.");
+  }
+}
+
+export async function postPublishAdminMatch(req, res) {
+  if (req.user?.role !== "admin") {
+    return res.status(403).json({ success: false, message: "Administrator access required." });
+  }
+  const unknownFields = unexpectedFields(req.body || {}, []);
+  if (unknownFields.length) return res.status(400).json({ success: false, message: unknownFields[0] });
+  try {
+    const match = await publishAdminMatch(req.params.id, req.user._id);
+    return res.json({
+      success: true,
+      message: "Match published and all eight contest tiers are ready.",
+      match,
+      tiers: match.automaticContestTiers,
+    });
+  } catch (error) {
+    return sendError(res, error, error.status === 503
+      ? "Match publication or tier setup is incomplete. Retry Publish Match; existing queues will be reused."
+      : "Could not publish match.");
   }
 }
 

@@ -12,6 +12,7 @@ import {
 
 import { getWallet } from "./walletService.js";
 import { unexpectedFields } from "../../middleware/requestSafety.js";
+import { notifyWalletRequestStatus } from "../../services/notificationService.js";
 import {
   retryAdminRequestNotification,
   sendAdminRequestNotification,
@@ -77,7 +78,7 @@ export async function getMyWallet(req, res) {
 export async function getMyTransactions(req, res) {
   try {
     const transactions = await WalletTransaction.find({ user: req.user._id })
-      .select("type amount direction status reference description contest initiatedBy createdAt processedAt")
+      .select("type amount direction status reference description contest initiatedBy createdAt processedAt balanceBefore balanceAfter")
       .populate("contest", "tier match")
       .populate("initiatedBy", "userId username")
       .sort({ createdAt: -1 })
@@ -112,6 +113,7 @@ export async function requestWithdrawal(req, res) {
       reference,
       payoutDetails,
     });
+    await notifyWalletRequestStatus("withdrawal", withdrawal);
     let notification;
     try {
       notification = await sendAdminRequestNotification("withdrawal", withdrawal._id);
@@ -233,6 +235,8 @@ export async function processWithdrawal(req, res) {
       adminId: req.user._id,
     });
 
+    await notifyWalletRequestStatus("withdrawal", withdrawal);
+
     return res.status(200).json({
       success: true,
       message: "Withdrawal marked as processing.",
@@ -261,6 +265,8 @@ export async function markWithdrawalSuccess(req, res) {
       adminId: req.user._id,
       payoutReference,
     });
+
+    await notifyWalletRequestStatus("withdrawal", withdrawal);
 
     return res.status(200).json({
       success: true,
@@ -291,6 +297,8 @@ export async function failOrRejectWithdrawal(req, res) {
       reason,
       rejected,
     });
+
+    await notifyWalletRequestStatus("withdrawal", withdrawal);
 
     return res.status(200).json({
       success: true,

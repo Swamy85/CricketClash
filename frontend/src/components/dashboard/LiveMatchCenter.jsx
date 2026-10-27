@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import "../../features/dashboard/matches/LiveMatchCenter.css";
-import { countProviderMatches, filterAndSortProviderMatches } from "../../features/dashboard/matches/liveMatchCenterUtils.js";
+import { countProviderMatches, filterAndSortProviderMatches, selectLiveCenterMatches } from "../../features/dashboard/matches/liveMatchCenterUtils.js";
 import { formatIndiaDateTime } from "../../utils/dateTime";
 
 const FILTERS = [
@@ -44,23 +44,30 @@ function Scorecard({ innings }) {
 }
 
 export default function LiveMatchCenter({
-  feed, loading, error, onRetry, onCreateMatch, actionBusy = false,
+  feed, loading, error, notice = "", onRetry, onPublishMatch, publishingMatchId = "",
   internalMatches = [], userView = false,
 }) {
   const [category, setCategory] = useState("upcoming");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("soonest");
-  const matches = feed?.matches || [];
+  const [tournament, setTournament] = useState("");
+  const providerMatches = feed?.matches || [];
+  function getInternalMatch(providerMatch) {
+    const providerIdMatch = internalMatches.find((match) => match.providerId && match.providerId === providerMatch.externalId);
+    if (providerIdMatch) return providerIdMatch;
+    const providerStart = new Date(providerMatch.startTime || 0).getTime();
+    return internalMatches.find((match) => {
+      const sameTeams = (match.teamA === providerMatch.teamA && match.teamB === providerMatch.teamB)
+        || (match.teamA === providerMatch.teamB && match.teamB === providerMatch.teamA);
+      return sameTeams && Math.abs(new Date(match.startTime).getTime() - providerStart) < 60_000;
+    });
+  }
+  const matches = selectLiveCenterMatches(providerMatches, internalMatches, userView);
+  const tournaments = useMemo(() => [...new Set(matches.map((match) => String(match.series || "").trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right)), [matches]);
   const counts = useMemo(() => countProviderMatches(matches), [matches]);
-  const visibleMatches = useMemo(() => filterAndSortProviderMatches(matches, { category, query, sort }), [category, matches, query, sort]);
+  const visibleMatches = useMemo(() => filterAndSortProviderMatches(matches, { category, query, sort, tournament }), [category, matches, query, sort, tournament]);
   const updated = feed?.lastUpdatedAt ? new Date(feed.lastUpdatedAt) : null;
   const stale = !updated || !Number.isFinite(updated.getTime()) || Date.now() - updated.getTime() > 20 * 60 * 1000;
-
-  function getInternalMatch(providerMatch) {
-    const start = new Date(providerMatch.startTime || 0).getTime();
-    return internalMatches.find((match) => match.teamA === providerMatch.teamA && match.teamB === providerMatch.teamB
-      && Math.abs(new Date(match.startTime).getTime() - start) < 60_000);
-  }
 
   return <section className="cc-feature-page cc-live-center">
     <header className="cc-feature-heading cc-live-heading">
@@ -69,11 +76,14 @@ export default function LiveMatchCenter({
     </header>
     <div className="cc-live-toolbar">
       <div className="cc-live-tabs" role="tablist" aria-label="Match category">{FILTERS.map(([key, label]) => <button type="button" key={key} role="tab" aria-selected={category === key} className={category === key ? "active" : ""} onClick={() => setCategory(key)}>{label}<span>{counts[key] ?? 0}</span></button>)}</div>
-      <div className="cc-live-controls"><label><span className="sr-only">Search matches</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search teams or series" /></label><label><span className="sr-only">Sort matches</span><select value={sort} onChange={(event) => setSort(event.target.value)}><option value="soonest">Nearest first</option><option value="latest">Latest first</option></select></label><button type="button" className="cc-button cc-button-maroon" disabled={loading} onClick={onRetry}>{loading ? "Refreshing…" : "Refresh view"}</button></div>
+      <div className="cc-live-controls"><label className="cc-live-search-filter"><span className="sr-only">Search matches</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search teams or series" /></label>{!userView && <label className="cc-live-tournament-filter"><span>Tournament</span><select value={tournament} onChange={(event) => setTournament(event.target.value)}><option value="">All tournaments</option>{tournaments.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>}<label className="cc-live-sort-filter"><span className="sr-only">Sort matches</span><select value={sort} onChange={(event) => setSort(event.target.value)}><option value="soonest">Nearest first</option><option value="latest">Latest first</option></select></label><button type="button" className="cc-button cc-button-maroon" disabled={loading} onClick={onRetry}>{loading ? "Refreshing…" : "Refresh view"}</button></div>
     </div>
     {error && <div className="cc-feature-alert" role="alert">{error}</div>}
-    {loading && !feed ? <div className="cc-feature-empty">Loading shared match data…</div> : visibleMatches.length === 0 ? <div className="cc-feature-empty"><h2>{query ? "No matches found" : `No ${category} matches available`}</h2><p>{feed?.lastUpdatedAt ? `Last successful update: ${formatDate(feed.lastUpdatedAt)}. Refresh status: ${feed.outcome || "unknown"}.` : `The provider feed has not completed a successful refresh. Refresh status: ${feed?.outcome || "not yet checked"}.`}</p></div> : <div className="cc-live-match-grid">{visibleMatches.map((match) => {
-      const internal = userView ? getInternalMatch(match) : null;
+    {notice && <div className="cc-feature-success" role="status">{notice}</div>}
+    {loading && !feed ? <div className="cc-feature-empty">Loading shared match data…</div> : visibleMatches.length === 0 ? <div className="cc-feature-empty"><h2>{query || tournament ? "No matches found" : `No ${category} matches available`}</h2><p>{feed?.lastUpdatedAt ? `Last successful update: ${formatDate(feed.lastUpdatedAt)}. Refresh status: ${feed.outcome || "unknown"}.` : `The provider feed has not completed a successful refresh. Refresh status: ${feed?.outcome || "not yet checked"}.`}</p></div> : <div className="cc-live-match-grid">{visibleMatches.map((match) => {
+      const internal = getInternalMatch(match);
+      const publishEligible = match.category === "upcoming" && new Date(match.startTime || 0) > new Date();
+      const busy = Boolean(publishingMatchId);
       return <article className={`cc-live-match-card ${match.category === "live" ? "is-live" : ""}`} key={match.externalId}>
         <div className="cc-live-card-top"><span className={`cc-live-status ${match.category}`}><i />{match.category}</span><span className="cc-live-format">{match.format || "Format unavailable"}</span><span className="cc-live-source">Provider</span></div>
         <div className="cc-live-teams"><Team name={match.teamA} logo={match.teamALogo} score={match.scoreA} /><span className="cc-live-vs">VS</span><Team name={match.teamB} logo={match.teamBLogo} score={match.scoreB} /></div>
@@ -82,7 +92,18 @@ export default function LiveMatchCenter({
         <div className="cc-live-meta">{match.series && <strong>{match.series}</strong>}<span>{formatDate(match.startTime)}</span></div>
         <Scorecard innings={match.innings} />
         {userView && internal && <Link className="cc-live-contests-link" to={`/dashboard/contests?matchId=${encodeURIComponent(internal._id)}`}>View contests for this match</Link>}
-        {onCreateMatch && match.category === "upcoming" && match.startTime && new Date(match.startTime) > new Date() && <button type="button" className="cc-live-admin-action" disabled={actionBusy} onClick={() => onCreateMatch(match)}>{actionBusy ? "Adding match…" : "Add to CricketClash and set up contests"}</button>}
+        {!userView && onPublishMatch && internal?.published === true && <>
+          <span className="cc-live-published-state">Published</span>
+          <Link className="cc-live-contests-link" to="/admin/matches">Manage Match</Link>
+          <Link className="cc-live-contests-link" to="/admin/contests" state={{ matchId: internal._id }}>Manage Contests</Link>
+          {internal.providerSource === "CRICAPI" && internal.contestQueuesReady !== true && publishEligible && <button type="button" className="cc-live-admin-action cc-live-publish-action" disabled={busy} onClick={() => onPublishMatch(match)}>{busy ? "Finishing tier setup…" : "Retry Tier Setup"}</button>}
+        </>}
+        {!userView && onPublishMatch && internal?.published !== true && <>
+          <button type="button" className="cc-live-admin-action cc-live-publish-action" disabled={busy || !publishEligible} onClick={() => onPublishMatch(match)}>
+            {busy ? "Publishing match and 8 tiers…" : "Publish Match"}
+          </button>
+          {!publishEligible && <p className="cc-live-publish-hint">Only upcoming fixtures with a future start time can open contest entry.</p>}
+        </>}
       </article>;
     })}</div>}
   </section>;

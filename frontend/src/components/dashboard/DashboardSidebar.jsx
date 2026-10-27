@@ -8,7 +8,7 @@ const links = [
   { to: "/dashboard/wallet", label: "Wallet", icon: "₹" },
   { to: "/dashboard/profile", label: "Profile", icon: "♙" },
   { to: "/dashboard/settings", label: "Settings", icon: "⚙" },
-  { to: "/dashboard/contact", label: "Contact Us", icon: "@" },
+  { to: "/dashboard/support", label: "Contact Us", icon: "@" },
 ];
 
 export default function DashboardSidebar({ user }) {

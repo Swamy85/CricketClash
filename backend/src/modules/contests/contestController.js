@@ -49,7 +49,7 @@ export async function getOpenContests(req, res) {
   }
   try {
     const match = matchId
-      ? await Match.findById(matchId).select("competition teamA teamB format status result startTime").lean()
+      ? await Match.findById(matchId).select("competition teamA teamB format status result startTime published").lean()
       : null;
     if (matchId && !match) return res.status(404).json({ success: false, message: "Match not found." });
     const contests = await listOpenContests(new Date(), matchId || undefined);

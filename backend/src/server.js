@@ -4,7 +4,9 @@ import app from "./app.js";
 import User from "./models/User.js";
 import UsernameClaim from "./models/UsernameClaim.js";
 import PendingRegistration from "./models/PendingRegistration.js";
+import Contest from "./models/Contest.js";
 import { initializeUsernameClaims } from "./services/registrationService.js";
+import { migrateContestQueueIndex } from "./services/contestQueueIndexService.js";
 import { startContestDeadlineProcessor } from "./modules/contests/contestDeadlineService.js";
 import { retryDueAdminRequestNotifications } from "./services/adminRequestEmailService.js";
 import { seedTeamCatalog } from "./services/teamCatalogSeed.js";
@@ -21,6 +23,9 @@ async function startServer() {
     }
 
     await mongoose.connect(process.env.MONGODB_URI);
+    const queueIndexMigration = await migrateContestQueueIndex(Contest);
+    await Contest.createIndexes();
+    console.info("Contest queue index initialization complete.", queueIndexMigration);
     await User.createIndexes();
     await PendingRegistration.createIndexes();
     await initializeUsernameClaims({ User, UsernameClaim });

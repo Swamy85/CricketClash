@@ -10,7 +10,7 @@ router.get("/", async (req, res) => {
       ...(preferences.matchUpdates === false ? ["MATCH_LIVE"] : []),
       ...(preferences.contestUpdates === false ? ["CONTEST_JOINED", "OPPONENT_JOINED", "CONTEST_FULL", "CONTEST_CANCELLED"] : []),
       ...(preferences.results === false ? ["MATCH_RESULT"] : []),
-      ...(preferences.announcements === false ? ["PAYOUT_COMPLETED", "PAYOUT_REVERSED", "REFUND_COMPLETED"] : []),
+      ...(preferences.announcements === false ? ["PAYOUT_COMPLETED", "PAYOUT_REVERSED", "REFUND_COMPLETED", "DEPOSIT_STATUS", "WITHDRAWAL_STATUS"] : []),
     ];
     const filter = {
       user: req.user._id,

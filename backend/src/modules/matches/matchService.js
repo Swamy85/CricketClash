@@ -4,7 +4,8 @@ import Match from "../../models/Match.js";
 import Contest from "../../models/Contest.js";
 import Team from "../../models/Team.js";
 import { settleMatchContests } from "../contests/contestSettlementService.js";
-import { ensureMatchContestQueues } from "../contests/contestService.js";
+import { ensureMatchContestQueues, publishMatchAndEnsureContestQueues } from "../contests/contestService.js";
+import { CONTEST_TIERS } from "../contests/contestValidation.js";
 import { announceMatchEvent } from "../../services/telegramNotificationService.js";
 
 const DEFAULT_CONTEST_TIERS = ["FREE", "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND", "ELITE", "CHAMPION"];
@@ -62,7 +63,7 @@ async function validateCompetitionTeams({ competition, teamA, teamB, format }) {
 }
 
 export async function listMatches() {
-  return Match.find()
+  return Match.find({ published: true })
     .select("-createdBy -pendingResultCorrection -automaticContestGeneration -automaticContestTiers -creationRequestId")
     .sort({ startTime: 1 })
     .limit(100)
@@ -70,20 +71,99 @@ export async function listMatches() {
 }
 
 export async function listAdminMatches({ recent = false, limit = 100 } = {}) {
-  return Match.find()
+  return Match.find({ published: true })
     .sort(recent ? { createdAt: -1, _id: -1 } : { startTime: 1 })
     .limit(limit)
     .lean();
 }
 
+export async function listAdminMatchPublicationStatus({ MatchModel = Match, ContestModel = Contest, limit = 1000, now = new Date() } = {}) {
+  const matches = await MatchModel.find({})
+    .select("_id providerId published providerSource automaticContestGeneration automaticContestTiers teamA teamB startTime status")
+    .sort({ startTime: 1 })
+    .limit(limit)
+    .lean();
+  if (!matches.length) return [];
+  const queueGroups = await ContestModel.aggregate([
+    { $match: {
+      match: { $in: matches.map((match) => match._id) },
+      tier: { $in: Object.keys(CONTEST_TIERS) },
+      status: "OPEN",
+      entryClosedAt: null,
+      expiresAt: { $gt: now },
+      "players.0": { $exists: false },
+    } },
+    { $group: { _id: "$match", tiers: { $addToSet: "$tier" } } },
+  ]);
+  const tiersByMatch = new Map(queueGroups.map((group) => [String(group._id), new Set(group.tiers)]));
+  return matches.map((match) => ({
+    ...match,
+    contestQueuesReady: Object.keys(CONTEST_TIERS).every((tier) => tiersByMatch.get(String(match._id))?.has(tier)),
+  }));
+}
+
 export async function getAdminMatchCounts() {
+  const published = { published: true };
   const [total, upcoming, live, completed] = await Promise.all([
-    Match.countDocuments({}),
-    Match.countDocuments({ status: "upcoming" }),
-    Match.countDocuments({ status: "live" }),
-    Match.countDocuments({ status: "completed" }),
+    Match.countDocuments(published),
+    Match.countDocuments({ ...published, status: "upcoming" }),
+    Match.countDocuments({ ...published, status: "live" }),
+    Match.countDocuments({ ...published, status: "completed" }),
   ]);
   return { total, upcoming, live, completed };
+}
+
+export async function publishAdminMatch(id, adminId, {
+  MatchModel = Match,
+  ContestModel = Contest,
+  publishQueues = publishMatchAndEnsureContestQueues,
+  now = new Date(),
+} = {}) {
+  if (!mongoose.isValidObjectId(id)) {
+    const error = new Error("Invalid match ID.");
+    error.status = 400;
+    throw error;
+  }
+
+  const match = await MatchModel.findById(id).lean();
+  if (!match) {
+    const error = new Error("Match not found.");
+    error.status = 404;
+    throw error;
+  }
+  const startTime = new Date(match.startTime).getTime();
+  if (match.status !== "upcoming" || !Number.isFinite(startTime) || startTime <= now.getTime()
+    || ["live", "result"].includes(String(match.providerState || "").toLowerCase())) {
+    const error = new Error("Only upcoming matches with a future start time can be published for contest entry.");
+    error.status = 409;
+    throw error;
+  }
+
+  try {
+    await publishQueues({ match, createdBy: adminId, MatchModel, forceAllTiers: true });
+    const [publishedMatch, queuedTiers] = await Promise.all([
+      MatchModel.findById(id).lean(),
+      ContestModel.distinct("tier", {
+        match: id,
+        tier: { $in: Object.keys(CONTEST_TIERS) },
+        status: "OPEN",
+        entryClosedAt: null,
+        expiresAt: { $gt: now },
+        "players.0": { $exists: false },
+      }),
+    ]);
+    if (!publishedMatch?.published || publishedMatch.automaticContestGeneration === false
+      || Object.keys(CONTEST_TIERS).some((tier) => !queuedTiers.includes(tier))) {
+      throw new Error("Not all contest tier queues were confirmed after publication.");
+    }
+    return publishedMatch;
+  } catch (cause) {
+    if (cause?.status === 409) throw cause;
+    const error = new Error("Match publication or tier queue setup is incomplete. Retry Publish Match; existing queues will be reused.", { cause });
+    error.status = 503;
+    error.code = "MATCH_PUBLICATION_INCOMPLETE";
+    throw error;
+  }
 }
 
 export async function getMatchById(id) {
@@ -93,7 +173,7 @@ export async function getMatchById(id) {
     throw error;
   }
 
-  const match = await Match.findById(id)
+  const match = await Match.findOne({ _id: id, published: true })
     .select("-createdBy -pendingResultCorrection -automaticContestGeneration -automaticContestTiers -creationRequestId")
     .lean();
 
@@ -330,6 +410,7 @@ export async function updateMatch(id, payload) {
     new Date(payload.startTime).getTime() !== new Date(existing.startTime).getTime();
 
   if (startTimeChanged) {
+    updates.previousStartTime = existing.startTime;
     const settledContest = await Contest.exists({
       match: id,
       $or: [
@@ -345,6 +426,10 @@ export async function updateMatch(id, payload) {
       error.status = 409;
       throw error;
     }
+  }
+
+  if (["competition", "teamA", "teamB", "format", "startTime"].some((field) => payload[field] !== undefined)) {
+    updates.providerAdminOverride = true;
   }
 
   const match = await Match.findByIdAndUpdate(id, updates, {

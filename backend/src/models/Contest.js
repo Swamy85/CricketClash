@@ -54,6 +54,15 @@ const contestPlayerSchema = new Schema(
       required: true,
     },
 
+    // Pending notices are delivered after the refund transaction commits and
+    // retried by the worker if notification delivery fails.
+    refundNotificationStatus: {
+      type: String,
+      enum: ["NOT_REQUIRED", "PENDING", "SENT"],
+      default: "NOT_REQUIRED",
+      required: true,
+    },
+
     refundedAt: {
       type: Date,
       default: null,
@@ -193,6 +202,44 @@ const contestSchema = new Schema(
       required: true,
     },
 
+    // Set once when entries close. Participants and settlement fields remain untouched.
+    entryClosedAt: {
+      type: Date,
+      default: null,
+    },
+
+    // Provider-derived contest result only; this is separate from settlement fields.
+    providerOutcomeStatus: {
+      type: String,
+      enum: ["PENDING", "DETERMINED", "TIE", "NO_RESULT", "ABANDONED", "AMBIGUOUS"],
+      default: "PENDING",
+      required: true,
+    },
+    providerOutcome: {
+      type: new Schema({
+        type: { type: String, enum: ["WINNER", "TIE", "NO_RESULT", "ABANDONED", "AMBIGUOUS"], required: true },
+        winningMatchSide: { type: String, enum: ["A", "B", null], default: null },
+        determinedWinnerId: { type: Schema.Types.ObjectId, ref: "User", default: null },
+        providerMatchId: { type: String, trim: true, maxlength: 100, default: "" },
+        providerStatus: { type: String, trim: true, maxlength: 200, default: "" },
+        providerTeamA: { type: String, trim: true, maxlength: 80, default: "" },
+        providerTeamB: { type: String, trim: true, maxlength: 80, default: "" },
+        providerScoreA: { type: String, trim: true, maxlength: 80, default: "" },
+        providerScoreB: { type: String, trim: true, maxlength: 80, default: "" },
+        signature: { type: String, trim: true, maxlength: 64, default: "" },
+        determinedAt: { type: Date, default: null },
+      }, { _id: false }),
+      default: null,
+    },
+
+    // Provider settlement runs in the same MongoDB transaction as wallet and fee writes.
+    providerSettlementStatus: {
+      type: String,
+      enum: ["PENDING", "PROCESSING", "SETTLED", "FAILED"],
+      default: "PENDING",
+      required: true,
+    },
+
     lockedAt: {
       type: Date,
       default: null,
@@ -264,7 +311,9 @@ const contestSchema = new Schema(
       default: undefined,
     },
   },
-  { timestamps: true }
+  // This collection has a guarded legacy-index migration before indexes are
+  // created by either the API or Background Worker.
+  { timestamps: true, autoIndex: false }
 );
 
 // Matchmaking queries: same match, tier and joinable status.

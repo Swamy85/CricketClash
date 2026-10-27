@@ -1,13 +1,15 @@
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { adminFetch } from "../services/adminSession";
+import { filterAdminPublishedMatches, paginateItems } from "../utils/adminMatchListUtils.js";
 import MatchCompetitionFields from "../components/MatchCompetitionFields";
 import { formatIndiaDateTime, toIndiaDateTimeInput, parseIndiaDateTimeInput } from "../../../utils/dateTime";
 
 import "../styles/admin-matches.css";
 
 const API_URL = "/api/admin/matches";
+const MATCHES_PER_PAGE = 20;
 
 const MATCH_FORMATS = ["T10", "T20", "ODI", "TEST", "HUNDRED"];
 const STATUSES = ["upcoming", "live", "completed", "cancelled", "abandoned"];
@@ -85,6 +87,7 @@ export default function AdminMatchesPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [formatFilter, setFormatFilter] = useState("all");
+  const [page, setPage] = useState(1);
   const [formOpen, setFormOpen] = useState(false);
   const [resultOnly, setResultOnly] = useState(false);
   const [editingId, setEditingId] = useState("");
@@ -144,6 +147,12 @@ export default function AdminMatchesPage() {
   }, [loadMatches]);
 
   useEffect(() => {
+    const refreshPublishedMatches = () => void loadMatches({ silent: true });
+    window.addEventListener("cricketclash:matches-updated", refreshPublishedMatches);
+    return () => window.removeEventListener("cricketclash:matches-updated", refreshPublishedMatches);
+  }, [loadMatches]);
+
+  useEffect(() => {
     const controller = new AbortController();
     adminFetch("/api/admin/teams?limit=1000", { signal: controller.signal })
       .then((response) => response.json())
@@ -174,24 +183,12 @@ export default function AdminMatchesPage() {
   const editingFinalized = Boolean(editingMatch && ["completed", "cancelled", "abandoned"].includes(editingMatch.status));
   const correctionMatch = matches.find((match) => match._id === correctionId);
 
-  const filteredMatches = useMemo(() => {
-    const query = search.trim().toLowerCase();
+  const filteredMatches = filterAdminPublishedMatches(matches, { query: search, status: statusFilter, format: formatFilter });
+  const pagination = paginateItems(filteredMatches, page, MATCHES_PER_PAGE);
+  const { pageCount, items: visibleMatches } = pagination;
 
-    return matches.filter((match) => {
-      const matchesSearch =
-        !query ||
-        [match.title, match.competition, match.teamA, match.teamB, match.format]
-          .some((value) => String(value || "").toLowerCase().includes(query));
-
-      const matchesStatus =
-        statusFilter === "all" || match.status === statusFilter;
-
-      const matchesFormat =
-        formatFilter === "all" || match.format === formatFilter;
-
-      return matchesSearch && matchesStatus && matchesFormat;
-    });
-  }, [matches, search, statusFilter, formatFilter]);
+  useEffect(() => setPage(1), [search, statusFilter, formatFilter]);
+  useEffect(() => setPage((current) => Math.min(current, pageCount)), [pageCount]);
 
   function openCreateForm() {
     setResultOnly(false);
@@ -636,9 +633,9 @@ export default function AdminMatchesPage() {
             <div className="admin-matches-slider-wrap">
               <button type="button" className="admin-matches-slider-arrow" onClick={() => scrollMatchCards(-1)} aria-label="Scroll matches left">‹</button>
               <div className="admin-matches-card-grid" ref={matchSliderRef}>
-              {filteredMatches.map((match) => (
+              {visibleMatches.map((match) => (
                 <article key={match._id} className="admin-match-card" role="group" tabIndex={0} onClick={() => openEditForm(match)} onKeyDown={(event) => handleCardKeyDown(event, match)} aria-label={`Open ${match.teamA} vs ${match.teamB}`}>
-                  <div className="admin-match-card-top"><span className={`admin-matches-status admin-matches-status--${match.status}`}><span />{match.status}</span><span className="admin-matches-format">{match.format === "HUNDRED" ? "Hundred" : match.format}</span></div>
+                  <div className="admin-match-card-top"><span className={`admin-matches-status admin-matches-status--${match.status}`}><span />{match.status}</span><span className="admin-matches-format">{match.format === "HUNDRED" ? "Hundred" : match.format}</span>{match.providerSource === "CRICAPI" && <span className="admin-provider-review">CRICAPI: {match.published ? "PUBLISHED" : "REVIEW"}</span>}</div>
                   <div className="admin-match-card-contests"><Link to="/admin/contests" state={{ matchId: match._id }} onClick={(event) => event.stopPropagation()}>View contests</Link></div>
                   {match.imageUrl && <img className="admin-match-card-image" src={match.imageUrl} alt="" loading="lazy" />}
                   <div className="admin-match-card-teams">
@@ -648,6 +645,7 @@ export default function AdminMatchesPage() {
                   </div>
                   <h3>{match.title || `${match.teamA} vs ${match.teamB}`}</h3>
                   <p className="admin-match-card-competition">{match.competition || "Competition not set"}</p>
+                  {match.providerSource === "CRICAPI" && <p className="admin-match-provider-data">CricAPI: {match.providerStatus || "Status unavailable"}{(match.providerScoreSummary || [match.providerScoreA, match.providerScoreB].filter(Boolean).join(" | ")) ? ` | ${match.providerScoreSummary || [match.providerScoreA, match.providerScoreB].filter(Boolean).join(" | ")}` : ""}</p>}
                   <div className="admin-match-card-time"><span>{formatDate(match.startTime)}</span><span>{formatCountdown(match.startTime, now)}</span></div>
                   {match.result && <p className="admin-matches-result">Result: {match.result === "teamA" ? `${match.teamA} wins` : match.result === "teamB" ? `${match.teamB} wins` : match.result.replace("_", " ")}</p>}
                   <div className="admin-match-card-actions"><button type="button" className="admin-match-result-btn" onClick={(event) => { event.stopPropagation(); openResultForm(match); }}>{match.status === "completed" ? "Correct result" : ["cancelled", "abandoned"].includes(match.status) ? "View result" : "Update result"}</button><button type="button" className="admin-matches-delete-btn" onClick={(event) => { event.stopPropagation(); void handleDelete(match); }} disabled={Boolean(deletingId)}>{deletingId === match._id ? "Deleting..." : "Delete"}</button></div>
@@ -657,7 +655,12 @@ export default function AdminMatchesPage() {
               <button type="button" className="admin-matches-slider-arrow" onClick={() => scrollMatchCards(1)} aria-label="Scroll matches right">›</button>
             </div>
             <div className="admin-matches-list-footer">
-              Showing {filteredMatches.length} of {matches.length} matches
+              <span>Showing {filteredMatches.length ? (page - 1) * MATCHES_PER_PAGE + 1 : 0}–{Math.min(page * MATCHES_PER_PAGE, filteredMatches.length)} of {filteredMatches.length} published matches</span>
+              <div className="admin-matches-pagination" aria-label="Published match pages">
+                <button type="button" className="admin-matches-secondary-btn" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1}>Previous</button>
+                <span>Page {page} of {pageCount}</span>
+                <button type="button" className="admin-matches-secondary-btn" onClick={() => setPage((current) => Math.min(pageCount, current + 1))} disabled={page >= pageCount}>Next</button>
+              </div>
             </div>
           </>
         )}

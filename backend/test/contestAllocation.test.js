@@ -18,6 +18,7 @@ test("joining team A atomically targets only the oldest eligible team B contest 
   assert.equal(query.entryFee, args.entryFee);
   assert.equal(query.prizePool, args.prizePool);
   assert.equal(query.status, "WAITING");
+  assert.equal(query.entryClosedAt, null);
   assert.deepEqual(query["players.0.selectedTeam"], "B");
   assert.deepEqual(query["players.0.entryPaymentStatus"], { $in: ["PAID", "NOT_REQUIRED", "PENDING"] });
   assert.deepEqual(query["players.1"], { $exists: false });
@@ -40,6 +41,7 @@ test("fallback allocation is restricted to an empty contest in the same match an
   assert.equal(query.entryFee, args.entryFee);
   assert.equal(query.prizePool, args.prizePool);
   assert.equal(query.status, "OPEN");
+  assert.equal(query.entryClosedAt, null);
   assert.deepEqual(query["players.0"], { $exists: false });
   assert.deepEqual(query["players.user"], { $ne: args.userId });
 });

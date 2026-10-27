@@ -8,6 +8,7 @@ import Deposit from "../../models/Deposit.js";
 import { unexpectedFields } from "../../middleware/requestSafety.js";
 import { uploadDirectory } from "./depositUpload.js";
 import { creditWallet } from "./walletService.js";
+import { notifyWalletRequestStatus } from "../../services/notificationService.js";
 import {
   retryAdminRequestNotification,
   sendAdminRequestNotification,
@@ -148,6 +149,7 @@ export async function createDeposit(req, res) {
     });
 
     savedDeposit = deposit;
+    await notifyWalletRequestStatus("deposit", deposit);
     const notification = await sendAdminRequestNotification("deposit", deposit._id);
 
     return res.status(201).json({
@@ -426,6 +428,8 @@ export async function approveDeposit(req, res) {
       throw new Error("Deposit approval status could not be saved.");
     }
 
+    await notifyWalletRequestStatus("deposit", approved);
+
     return res.status(200).json({
       success: true,
       message: "Deposit approved and wallet credited.",
@@ -502,6 +506,8 @@ export async function rejectDeposit(req, res) {
         message: "Deposit was not pending or could not be found.",
       });
     }
+
+    await notifyWalletRequestStatus("deposit", deposit);
 
     return res.status(200).json({
       success: true,

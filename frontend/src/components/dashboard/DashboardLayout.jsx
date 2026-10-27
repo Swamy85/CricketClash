@@ -22,10 +22,9 @@ export default function DashboardLayout() {
   const showJoinTelegram = pathname.replace(/\/$/, "") === "/dashboard";
 
   const [matches, setMatches] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [matchesError, setMatchesError] = useState("");
-  const [matchesLoading, setMatchesLoading] = useState(false);
+  const [matchesLoading, setMatchesLoading] = useState(true);
   const [matchesRefreshing, setMatchesRefreshing] = useState(false);
   const [matchesRefreshNotice, setMatchesRefreshNotice] = useState("");
   const matchesRequestRef = useRef(null);
@@ -60,7 +59,6 @@ export default function DashboardLayout() {
   }, []);
 
   const loadDashboard = useCallback(async () => {
-    setLoading(true);
     setError("");
 
     try {
@@ -69,6 +67,7 @@ export default function DashboardLayout() {
       }
 
       // Match data is shared across dashboard sections.
+      setMatchesLoading(true);
       const matchController = new AbortController();
       if (matchesRequestRef.current) matchesRequestRef.current.abort();
       matchesRequestRef.current = matchController;
@@ -83,14 +82,14 @@ export default function DashboardLayout() {
       } finally {
         if (matchesRequestRef.current === matchController) {
           matchesRequestRef.current = null;
+          setMatchesLoading(false);
         }
       }
     } catch (err) {
+      setMatchesLoading(false);
       setError(
         err.message || "Unable to load your dashboard."
       );
-    } finally {
-      setLoading(false);
     }
   }, [user]);
 
@@ -112,30 +111,6 @@ export default function DashboardLayout() {
       window.clearInterval(timer);
     };
   }, [refreshMatches]);
-
-  if (loading) {
-    return (
-      <div className="cc-dashboard-loading">
-        <div className="cc-loading-mark">C</div>
-        <div className="cc-loading-spinner" />
-        <p>Setting up your CricketClash lobby...</p>
-      </div>
-    );
-  }
-
-  if (error && !user) {
-    return (
-      <div className="cc-dashboard-loading">
-        <div className="cc-dashboard-error" role="alert">
-          <h2>We couldn't load your dashboard</h2>
-          <p>{error}</p>
-          <button type="button" onClick={loadDashboard}>
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className={`cc-dashboard${showJoinTelegram ? " cc-dashboard--telegram" : ""}`}>

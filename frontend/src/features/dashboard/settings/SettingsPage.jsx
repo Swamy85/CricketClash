@@ -1,7 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { useAppSession } from "../../../context/SessionContext";
-import { changeAccountPassword, saveNotificationPreferences } from "../../auth/services/authService";
+import { saveNotificationPreferences } from "../../auth/services/authService";
 import { formatIndiaDateTime } from "../../../utils/dateTime";
 import "./SettingsPage.css";
 
@@ -14,7 +14,6 @@ const DEFAULT_PREFERENCES = {
 
 const navItems = [
   ["account", "Account", "A"],
-  ["security", "Security", "S"],
   ["notifications", "Notifications", "N"],
   ["privacy", "Privacy", "P"],
 ];
@@ -27,10 +26,6 @@ export default function SettingsPage() {
     ...(user?.notificationPreferences || {}),
   }));
   const [savingPreference, setSavingPreference] = useState("");
-  const [password, setPassword] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
-  const [passwordBusy, setPasswordBusy] = useState(false);
-  const [passwordMessage, setPasswordMessage] = useState("");
-  const [passwordMessageType, setPasswordMessageType] = useState("success");
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [noticeType, setNoticeType] = useState("success");
@@ -61,38 +56,6 @@ export default function SettingsPage() {
       setNoticeType("error");
     } finally {
       setSavingPreference("");
-    }
-  }
-
-  async function submitPassword(event) {
-    event.preventDefault();
-    if (passwordBusy) return;
-    setPasswordMessage("");
-    if (password.newPassword !== password.confirmPassword) {
-      setPasswordMessage("New password and confirmation do not match.");
-      setPasswordMessageType("error");
-      return;
-    }
-    if (password.newPassword.length < 8 || new TextEncoder().encode(password.newPassword).length > 72) {
-      setPasswordMessage("Use a password between 8 and 72 bytes.");
-      setPasswordMessageType("error");
-      return;
-    }
-
-    setPasswordBusy(true);
-    try {
-      const result = await changeAccountPassword(password);
-      setPassword({ currentPassword: "", newPassword: "", confirmPassword: "" });
-      setPasswordMessage(result.message || "Password updated successfully.");
-      setPasswordMessageType("success");
-      if (!result.currentSessionPreserved) {
-        window.setTimeout(() => void logout("manual"), 1400);
-      }
-    } catch (error) {
-      setPasswordMessage(error.message || "Unable to change your password.");
-      setPasswordMessageType("error");
-    } finally {
-      setPasswordBusy(false);
     }
   }
 
@@ -154,27 +117,13 @@ export default function SettingsPage() {
             ) : <p className="cc-settings-muted">Loading account information...</p>}
             <p className="cc-settings-helper">Account identity fields are managed by CricketClash and aren't editable here.</p>
           </section>
-
-
-          <section id="settings-security" className="cc-settings-card cc-settings-section">
-            <SectionTitle icon="S" title="Change password" subtitle="Use your current password to set a new one." />
-            <form className="cc-settings-password-form" onSubmit={submitPassword}>
-              <label>Current password<input type="password" autoComplete="current-password" value={password.currentPassword} onChange={(event) => setPassword({ ...password, currentPassword: event.target.value })} required /></label>
-              <label>New password<input type="password" autoComplete="new-password" minLength={8} value={password.newPassword} onChange={(event) => setPassword({ ...password, newPassword: event.target.value })} required /></label>
-              <label>Confirm new password<input type="password" autoComplete="new-password" minLength={8} value={password.confirmPassword} onChange={(event) => setPassword({ ...password, confirmPassword: event.target.value })} required /></label>
-              {passwordMessage && <p className={`cc-settings-form-message ${passwordMessageType}`} role={passwordMessageType === "error" ? "alert" : "status"}>{passwordMessage}</p>}
-              <button className="cc-settings-primary" type="submit" disabled={passwordBusy}>{passwordBusy ? "Updating password..." : "Update password"}</button>
-            </form>
-            <p className="cc-settings-helper">Changing your password signs out other active sessions.</p>
-          </section>
-
           <section id="settings-notifications" className="cc-settings-card cc-settings-section">
             <SectionTitle icon="N" title="Notification preferences" subtitle="Choose which in-app updates appear in your notifications." />
             <div className="cc-settings-toggle-list">
               <PreferenceToggle label="Match updates" detail="Live match updates and status changes." checked={preferences.matchUpdates} disabled={Boolean(savingPreference)} busy={savingPreference === "matchUpdates"} onChange={(checked) => togglePreference("matchUpdates", checked)} />
               <PreferenceToggle label="Contest updates" detail="Contest entries, opponents and availability." checked={preferences.contestUpdates} disabled={Boolean(savingPreference)} busy={savingPreference === "contestUpdates"} onChange={(checked) => togglePreference("contestUpdates", checked)} />
               <PreferenceToggle label="Results" detail="Match results and contest outcomes." checked={preferences.results} disabled={Boolean(savingPreference)} busy={savingPreference === "results"} onChange={(checked) => togglePreference("results", checked)} />
-              <PreferenceToggle label="Announcements" detail="Payout, refund and general account updates." checked={preferences.announcements} disabled={Boolean(savingPreference)} busy={savingPreference === "announcements"} onChange={(checked) => togglePreference("announcements", checked)} />
+              <PreferenceToggle label="Announcements" detail="Deposit, withdrawal, payout and refund updates." checked={preferences.announcements} disabled={Boolean(savingPreference)} busy={savingPreference === "announcements"} onChange={(checked) => togglePreference("announcements", checked)} />
             </div>
             {savingPreference && <p className="cc-settings-helper" role="status">Saving preference...</p>}
           </section>

@@ -58,7 +58,7 @@ function resolveJoinRequest(contest, { matchId, tier, userId, selectedTeam, idem
 }
 
 // Validate that a match is eligible for contest creation or joining.
-async function getJoinableMatch(matchId, session) {
+async function getJoinableMatch(matchId, session, { allowUnpublished = false } = {}) {
   if (!isValidId(matchId)) {
     throw makeError("Invalid match ID.");
   }
@@ -71,11 +71,19 @@ async function getJoinableMatch(matchId, session) {
     throw makeError("Match not found.", 404);
   }
 
+  if (match.published !== true && !allowUnpublished) {
+    throw makeError("This match is awaiting admin review and is not published for contest entries.", 409);
+  }
+
   if (match.status !== "upcoming") {
     throw makeError(
       `This match has status "${match.status}" and is not accepting contest entries.`,
       409
     );
+  }
+
+  if (["live", "result"].includes(String(match.providerState || "").toLowerCase())) {
+    throw makeError("The match has started according to the live provider feed. Contest entries are closed.", 409);
   }
 
   const startTime = new Date(match.startTime).getTime();
@@ -102,6 +110,7 @@ function publicContestQuery(now = new Date()) {
     status: { $in: ["OPEN", "WAITING"] },
     settlementStatus: { $nin: ["SETTLED", "REFUNDED"] },
     expiresAt: { $gt: now },
+    entryClosedAt: null,
   };
 }
 
@@ -114,7 +123,7 @@ export async function listOpenContests(now = new Date(), matchId) {
   if (matchId) query.match = matchId;
   const contests = await Contest.find(query)
     .select("-players.joinRequestId")
-    .populate("match", "competition teamA teamB format status result startTime")
+    .populate("match", "competition teamA teamB format status result startTime published providerState providerStatus")
     .populate("players.user", "userId")
     .sort({ createdAt: 1, _id: 1 })
     .lean();
@@ -157,7 +166,7 @@ export async function listAllContests({ page = 1, limit = 10, matchId, status, s
   const [contests, total] = await Promise.all([
     Contest.find(query)
     .select("-players.joinRequestId")
-    .populate("match", "competition teamA teamB format status startTime")
+    .populate("match", "competition teamA teamB format status startTime providerState providerStatus")
     .populate("players.user", "userId username")
     .populate("createdBy", "userId username")
     .sort({ createdAt: -1 })
@@ -261,7 +270,7 @@ export async function listLeaderboard(limit) {
 // --------------------------------------------------
 
 export async function createContest({ matchId, tier, name = "", createdBy, session }) {
-  const match = await getJoinableMatch(matchId, session);
+  const match = await getJoinableMatch(matchId, session, { allowUnpublished: true });
 
   if (!Object.hasOwn(CONTEST_TIERS, tier)) {
     throw makeError("Invalid contest tier.");
@@ -280,20 +289,26 @@ export async function createContest({ matchId, tier, name = "", createdBy, sessi
     entryFee: config.entryFee,
     prizePool: config.prizePool,
     status: "OPEN",
+    entryClosedAt: null,
     expiresAt: { $gt: now },
     "players.0": { $exists: false },
   });
   if (session) activeContestQuery = activeContestQuery.session(session);
   const activeContest = await activeContestQuery.lean();
 
+  const publishMatch = () => publishMatchAndEnsureContestQueues({ match, createdBy, session });
+
   if (activeContest) {
     if (name.trim() && name.trim() !== activeContest.name) {
-      return Contest.findOneAndUpdate(
+      const renamed = await Contest.findOneAndUpdate(
         { _id: activeContest._id, status: "OPEN", "players.0": { $exists: false } },
         { $set: { name: name.trim() } },
-        { new: true, runValidators: true }
+        { new: true, runValidators: true, ...(session ? { session } : {}) }
       );
+      if (renamed) await publishMatch();
+      return renamed;
     }
+    await publishMatch();
     return activeContest;
   }
 
@@ -321,9 +336,12 @@ export async function createContest({ matchId, tier, name = "", createdBy, sessi
     };
     if (session) {
       const [contest] = await Contest.create([contestData], { session });
+      await publishMatch();
       return contest;
     }
-    return await Contest.create(contestData);
+    const contest = await Contest.create(contestData);
+    await publishMatch();
+    return contest;
   } catch (error) {
     if (session) throw error;
     if (error.code !== 11000) throw error;
@@ -334,13 +352,64 @@ export async function createContest({ matchId, tier, name = "", createdBy, sessi
       entryFee: config.entryFee,
       prizePool: config.prizePool,
       status: "OPEN",
+      entryClosedAt: null,
       expiresAt: { $gt: new Date() },
       "players.0": { $exists: false },
     }).lean();
 
-    if (concurrentContest) return concurrentContest;
+    if (concurrentContest) {
+      await publishMatch();
+      return concurrentContest;
+    }
     throw error;
   }
+}
+
+export async function publishMatchAndEnsureContestQueues({
+  match,
+  createdBy,
+  session,
+  MatchModel = Match,
+  ensureQueues = ensureMatchContestQueues,
+  forceAllTiers = false,
+}) {
+  const newlyPublished = match.published !== true;
+  const enableAllTiers = newlyPublished || forceAllTiers;
+  const shouldEnsureQueues = enableAllTiers || match.automaticContestGeneration !== false;
+  const updates = { providerAdminOverride: true };
+  if (enableAllTiers) {
+    updates.automaticContestGeneration = true;
+    updates.automaticContestTiers = Object.keys(CONTEST_TIERS);
+  }
+  const publicationFilter = forceAllTiers
+    ? { _id: match._id, status: "upcoming", startTime: { $gt: new Date() }, providerState: { $nin: ["live", "result"] } }
+    : { _id: match._id };
+  const publicationUpdate = await MatchModel.updateOne(
+    publicationFilter,
+    { $set: updates },
+    session ? { session } : {}
+  );
+  if (forceAllTiers && publicationUpdate?.matchedCount === 0) {
+    const error = new Error("Match is no longer eligible for publication and contest entry.");
+    error.status = 409;
+    throw error;
+  }
+  if (shouldEnsureQueues) {
+    await ensureQueues(String(match._id), createdBy || match.createdBy, session, { allowUnpublished: true });
+  }
+  if (newlyPublished) {
+    const publishResult = await MatchModel.updateOne(
+      publicationFilter,
+      { $set: { published: true } },
+      session ? { session } : {}
+    );
+    if (forceAllTiers && publishResult?.matchedCount === 0) {
+      const error = new Error("Match is no longer eligible for publication and contest entry.");
+      error.status = 409;
+      throw error;
+    }
+  }
+  return { newlyPublished, tiers: shouldEnsureQueues ? Object.keys(CONTEST_TIERS) : [] };
 }
 
 export async function editContest(contestId, { matchId, tier, name }) {
@@ -428,6 +497,7 @@ async function ensureOpenContestQueue(match, tier, createdBy, session) {
     entryFee: config.entryFee,
     prizePool: config.prizePool,
     status: "OPEN",
+    entryClosedAt: null,
     expiresAt: { $gt: now },
     "players.0": { $exists: false },
   };
@@ -468,8 +538,8 @@ async function ensureOpenContestQueue(match, tier, createdBy, session) {
   }
 }
 
-export async function ensureMatchContestQueues(matchId, createdBy, session) {
-  const match = await getJoinableMatch(matchId, session);
+export async function ensureMatchContestQueues(matchId, createdBy, session, { allowUnpublished = false } = {}) {
+  const match = await getJoinableMatch(matchId, session, { allowUnpublished });
   if (match.automaticContestGeneration === false) return;
   let creatorId = createdBy || match.createdBy;
 
@@ -563,12 +633,12 @@ async function reserveContestSlot({
   const match = await getJoinableMatch(matchId);
 
   const now = new Date();
-  let contest = await Contest.findOne({ match: match._id, tier, status: { $in: ["OPEN", "WAITING"] }, expiresAt: { $gt: now } }).sort({ createdAt: 1, _id: 1 }).lean();
+  let contest = await Contest.findOne({ match: match._id, tier, status: { $in: ["OPEN", "WAITING"] }, entryClosedAt: null, expiresAt: { $gt: now } }).sort({ createdAt: 1, _id: 1 }).lean();
   if (!contest) {
     if (match.automaticContestGeneration !== false) {
       await ensureMatchContestQueues(match._id);
     }
-    contest = await Contest.findOne({ match: match._id, tier, status: { $in: ["OPEN", "WAITING"] }, expiresAt: { $gt: new Date() } }).sort({ createdAt: 1, _id: 1 }).lean();
+    contest = await Contest.findOne({ match: match._id, tier, status: { $in: ["OPEN", "WAITING"] }, entryClosedAt: null, expiresAt: { $gt: new Date() } }).sort({ createdAt: 1, _id: 1 }).lean();
   }
   if (!contest) throw makeError("No contest queue is available for this match and tier.", 409);
 
@@ -764,6 +834,7 @@ async function ensureReplacementContest(contestId) {
       const original = await Contest.findOne({
         _id: contestId,
         status: "FULL",
+        entryClosedAt: null,
         replacementContestId: null,
         "players.1": { $exists: true },
       }).session(session);
@@ -889,6 +960,7 @@ export async function ensureMissingReplacementContests() {
   const fullContests = await Contest.find({
     status: "FULL",
     replacementContestId: null,
+    entryClosedAt: null,
     expiresAt: { $gt: new Date() },
     "players.1": { $exists: true },
     "players.0.entryPaymentStatus": { $in: ["PAID", "NOT_REQUIRED"] },

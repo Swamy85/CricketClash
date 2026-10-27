@@ -24,6 +24,25 @@
   cursor: not-allowed;
 }
 
+.admin-provider-review {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #d6b66c;
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: #725513;
+  background: #fff8df;
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+.admin-match-provider-data {
+  margin: 6px 0;
+  color: #53635b;
+  font-size: .75rem;
+}
+
 .admin-matches-breadcrumb {
   display: flex;
   align-items: center;
@@ -648,11 +667,18 @@
 }
 
 .admin-matches-list-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 15px 24px;
   border-top: 1px solid #edf0ed;
   color: #849087;
   font-size: 11px;
 }
+
+.admin-matches-pagination { display: flex; align-items: center; gap: 10px; }
+.admin-matches-pagination .admin-matches-secondary-btn { min-height: 32px; padding: 6px 11px; }
 
 .admin-matches-empty {
   display: flex;
@@ -799,6 +825,8 @@
 
   .admin-matches-list-footer {
     padding: 14px 18px;
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 

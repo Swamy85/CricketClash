@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { selectVisibleOpenContests } from "../src/modules/contests/contestVisibility.js";
 
 const now = new Date("2026-10-23T12:00:00.000Z");
-const matchA = { _id: "match-a", status: "upcoming", startTime: new Date("2026-10-24T12:00:00.000Z") };
-const matchB = { _id: "match-b", status: "upcoming", startTime: new Date("2026-10-25T12:00:00.000Z") };
+const matchA = { _id: "match-a", published: true, status: "upcoming", startTime: new Date("2026-10-24T12:00:00.000Z") };
+const matchB = { _id: "match-b", published: true, status: "upcoming", startTime: new Date("2026-10-25T12:00:00.000Z") };
 
 function contest(id, { match = matchA, tier = "BRONZE", status = "WAITING", players = [], age = 0, expiresAt = match.startTime, settlementStatus } = {}) {
   return {
@@ -49,6 +49,31 @@ test("pending, malformed, stale, and non-upcoming contests are not joinable in t
   ];
 
   assert.deepEqual(selectVisibleOpenContests(rows, now).map((item) => item._id), ["good"]);
+});
+
+test("contests for unpublished provider imports remain hidden until an admin publishes the match", () => {
+  const unpublished = { ...matchA, published: false };
+  const rows = [
+    contest("review-only", { match: unpublished, status: "OPEN", players: [] }),
+    contest("published", { status: "OPEN", players: [] }),
+  ];
+  assert.deepEqual(selectVisibleOpenContests(rows, now).map((item) => item._id), ["published"]);
+});
+
+test("matches without an explicit publication flag are hidden from the user contest lobby", () => {
+  const legacyOrMalformed = { ...matchA };
+  delete legacyOrMalformed.published;
+  assert.deepEqual(selectVisibleOpenContests([
+    contest("unconfirmed-publication", { match: legacyOrMalformed, status: "OPEN", players: [] }),
+  ], now), []);
+});
+
+test("closed entries and confirmed provider-live matches are hidden from the open lobby", () => {
+  const closed = contest("closed", { status: "OPEN", players: [] });
+  closed.entryClosedAt = now;
+  const providerLive = contest("provider-live", { status: "OPEN", players: [] });
+  providerLive.match = { ...matchA, providerState: "live" };
+  assert.deepEqual(selectVisibleOpenContests([closed, providerLive], now), []);
 });
 
 test("participant count and settlement state override stale joinable status fields", () => {

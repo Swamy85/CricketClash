@@ -151,9 +151,10 @@ export default function LandingPage() {
   const teamCatalogLoadedRef = useRef(false);
   const upcomingMatches = matches
     .filter((match) =>
+      match.published === true &&
       String(match.status || "").toLowerCase() === "upcoming" &&
       Number.isFinite(new Date(match.startTime).getTime()) &&
-      new Date(match.startTime).getTime() > Date.now()
+      new Date(match.startTime).getTime() > clockNow
     )
     .sort((matchA, matchB) =>
       new Date(matchA.startTime).getTime() - new Date(matchB.startTime).getTime()

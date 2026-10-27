@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useOutletContext } from "react-router-dom";
+import { Link, useOutletContext } from "react-router-dom";
 import LiveMatchCenter from "../../../components/dashboard/LiveMatchCenter";
 import { adminFetch } from "../../admin/services/adminSession";
 import { notifySessionExpired, SESSION_STORAGE_KEY } from "../../auth/services/authService";
@@ -14,11 +14,12 @@ async function readJson(response) {
 
 export default function LiveMatchCenterPage({ adminMode = false }) {
   const context = useOutletContext() || {};
-  const navigate = useNavigate();
   const [feed, setFeed] = useState(null);
+  const [internalMatches, setInternalMatches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [actionBusy, setActionBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [publishingMatchId, setPublishingMatchId] = useState("");
   const requestRef = useRef(null);
   const actionLockRef = useRef(false);
 
@@ -29,21 +30,28 @@ export default function LiveMatchCenterPage({ adminMode = false }) {
     setLoading(true);
     setError("");
     try {
-      let response;
+      let data;
       if (adminMode) {
-        response = await adminFetch("/api/cricket-feed", { signal: controller.signal });
+        const [feedResponse, publicationResponse] = await Promise.all([
+          adminFetch("/api/cricket-feed", { signal: controller.signal }),
+          adminFetch("/api/admin/matches/publication-status", { signal: controller.signal }),
+        ]);
+        data = await readJson(feedResponse);
+        const publicationData = await readJson(publicationResponse);
+        if (controller.signal.aborted) return;
+        setInternalMatches(Array.isArray(publicationData.matches) ? publicationData.matches : []);
       } else {
         const sessionId = sessionStorage.getItem(SESSION_STORAGE_KEY);
-        response = await fetch(`${API_URL}/api/cricket-feed`, {
+        const response = await fetch(`${API_URL}/api/cricket-feed`, {
           signal: controller.signal,
           cache: "no-store",
           credentials: "include",
           headers: sessionId ? { "X-CricketClash-Session": sessionId } : {},
         });
+        data = await response.json().catch(() => ({}));
+        if (!adminMode) notifySessionExpired(response, data);
+        if (!response.ok || data.success === false) throw new Error(data.message || "Live match data is temporarily unavailable.");
       }
-      const data = await response.json().catch(() => ({}));
-      if (!adminMode) notifySessionExpired(response, data);
-      if (!response.ok || data.success === false) throw new Error(data.message || "Live match data is temporarily unavailable.");
       if (controller.signal.aborted) return;
       setFeed(data.feed || null);
     } catch (requestError) {
@@ -67,17 +75,44 @@ export default function LiveMatchCenterPage({ adminMode = false }) {
     };
   }, [loadFeed]);
 
-  const addFeedMatchAndOpenContests = useCallback(async (providerMatch) => {
+  const publishFeedMatch = useCallback(async (providerMatch) => {
     if (actionLockRef.current) return;
-    const startTime = new Date(providerMatch.startTime);
-    if (!providerMatch.series || !Number.isFinite(startTime.getTime()) || startTime <= new Date()) {
-      setError("This fixture needs a competition and a valid future start time before it can be added.");
-      return;
-    }
     actionLockRef.current = true;
-    setActionBusy(true);
+    setPublishingMatchId(String(providerMatch.externalId || "unknown"));
     setError("");
+    setNotice("");
     try {
+      const publicationData = await readJson(await adminFetch("/api/admin/matches/publication-status"));
+      const candidates = Array.isArray(publicationData.matches) ? publicationData.matches : [];
+      const startTime = new Date(providerMatch.startTime || 0);
+      const providerIdMatch = candidates.find((match) => match.providerId && match.providerId === providerMatch.externalId);
+      const fixtureMatch = candidates.find((match) => {
+        const sameTeams = match.teamA === providerMatch.teamA && match.teamB === providerMatch.teamB;
+        const closeStart = Math.abs(new Date(match.startTime).getTime() - startTime.getTime()) < 60_000;
+        return sameTeams && closeStart;
+      });
+      const existingMatch = providerIdMatch || fixtureMatch;
+
+      if (existingMatch?.published === true
+        && (existingMatch.providerSource !== "CRICAPI" || existingMatch.contestQueuesReady === true)) {
+        setInternalMatches((current) => current.some((match) => String(match._id) === String(existingMatch._id))
+          ? current.map((match) => String(match._id) === String(existingMatch._id) ? existingMatch : match)
+          : [...current, existingMatch]);
+        setNotice("This match is already published. Use Manage Match or Manage Contests below.");
+        return;
+      }
+      if (existingMatch) {
+        const publishData = await readJson(await adminFetch(`/api/admin/matches/${existingMatch._id}/publish`, { method: "POST" }));
+        const publishedMatch = { ...publishData.match, contestQueuesReady: true };
+        setInternalMatches((current) => [...current.filter((match) => String(match._id) !== String(publishedMatch._id)), publishedMatch]);
+        setNotice("Match published. All eight contest tiers are ready for users.");
+        window.dispatchEvent(new Event("cricketclash:matches-updated"));
+        return;
+      }
+
+      if (!providerMatch.series || !Number.isFinite(startTime.getTime()) || startTime <= new Date()) {
+        throw new Error("This fixture needs a competition and a valid future start time before it can be published.");
+      }
       const teamData = await readJson(await adminFetch("/api/admin/teams?limit=1000"));
       let teams = Array.isArray(teamData.teams) ? teamData.teams : [];
       const normalizedTeamName = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -145,8 +180,7 @@ export default function LiveMatchCenterPage({ adminMode = false }) {
       });
       const pair = validPairs[0];
       const format = pair.formats.includes(formatPreference) ? formatPreference : pair.formats[0];
-      const existingData = await readJson(await adminFetch("/api/admin/matches"));
-      const internalMatch = (existingData.matches || []).find((match) => match.status === "upcoming"
+      const internalMatch = candidates.find((match) => match.status === "upcoming"
         && match.teamA === pair.teamA.name && match.teamB === pair.teamB.name
         && match.competition === pair.teamA.competition
         && Math.abs(new Date(match.startTime).getTime() - startTime.getTime()) < 60_000);
@@ -160,26 +194,30 @@ export default function LiveMatchCenterPage({ adminMode = false }) {
         savedMatch = (await readJson(response)).match;
       }
       if (!savedMatch?._id) throw new Error("The CricketClash match was not returned.");
-      navigate("/admin/contests", { state: { matchId: savedMatch._id } });
+      const publishedMatch = { ...savedMatch, contestQueuesReady: true };
+      setInternalMatches((current) => [...current.filter((match) => String(match._id) !== String(publishedMatch._id)), publishedMatch]);
+      setNotice("Match published. All eight contest tiers are ready for users.");
+      window.dispatchEvent(new Event("cricketclash:matches-updated"));
     } catch (requestError) {
-      setError(requestError.message || "Could not add this fixture. Confirm both teams are in the CricketClash team catalog.");
+      setError(requestError.message || "Could not publish this match. Retry is safe if queue setup was interrupted.");
     } finally {
       actionLockRef.current = false;
-      setActionBusy(false);
+      setPublishingMatchId("");
     }
-  }, [navigate]);
+  }, []);
 
   return <>
     <LiveMatchCenter
       feed={feed}
       loading={loading}
       error={error}
+      notice={notice}
       onRetry={() => void loadFeed()}
-      onCreateMatch={adminMode ? addFeedMatchAndOpenContests : undefined}
-      actionBusy={actionBusy}
-      internalMatches={context.matches || []}
+      onPublishMatch={adminMode ? publishFeedMatch : undefined}
+      publishingMatchId={publishingMatchId}
+      internalMatches={adminMode ? internalMatches : context.matches || []}
       userView={!adminMode}
     />
-    {adminMode && <div className="cc-live-admin-note"><strong>Provider feed</strong> is read-only. Adding a fixture creates or reuses a separate CricketClash match. <Link to="/admin/matches">Manage CricketClash matches</Link>.</div>}
+    {adminMode && <div className="cc-live-admin-note"><strong>Provider feed</strong> shows all fixtures for admin review. Scheduled synchronization keeps imported matches unpublished; use Publish Match to publish a fixture and seed all eight contest tiers. Published matches link to their existing management pages. <Link to="/admin/matches">Manage CricketClash matches</Link>.</div>}
   </>;
 }

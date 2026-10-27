@@ -8,6 +8,7 @@ import {
   getWalletTransactions,
 } from "./walletService";
 import { formatIndiaDateTime } from "../../../utils/dateTime";
+import { formatTransactionAmount, getTransactionBalanceEffect, getTransactionStatusLabel, getTransactionTypeLabel } from "./walletTransactionView.js";
 
 import paymentQr from "../../../assets/QR_Code.jpeg";
 import "./WalletPage.css";
@@ -284,7 +285,7 @@ export default function WalletPage() {
 
       setMessage(
         result.message ||
-          "Deposit request submitted. Coins will be credited after admin verification."
+          "Deposit request submitted. Your balance will update after admin verification."
       );
 
       setDepositAmount("");
@@ -373,7 +374,7 @@ export default function WalletPage() {
     );
 
     if (!Number.isSafeInteger(amount) || amount <= 0) {
-      setError("Enter a valid whole-number coin amount.");
+      setError("Enter a valid whole-number amount.");
       return;
     }
 
@@ -383,7 +384,7 @@ export default function WalletPage() {
     }
 
     if (amount > available) {
-      setError("You don't have enough available coins.");
+      setError("You don't have enough available balance.");
       return;
     }
 
@@ -472,7 +473,7 @@ export default function WalletPage() {
         <div>
           <p className="cc-wallet-eyebrow">YOUR ACCOUNT</p>
           <h1>My Wallet</h1>
-          <p>Manage your coins, deposits, and withdrawals.</p>
+          <p>Manage your balance, deposits, and withdrawals.</p>
         </div>
 
         <button
@@ -512,17 +513,17 @@ export default function WalletPage() {
           <span>Total wallet balance</span>
           <strong>
             {walletLoaded
-              ? `${balance.toLocaleString("en-IN")} coins`
+              ? `₹${balance.toLocaleString("en-IN")}`
               : "—"}
           </strong>
-          <small>All coins currently in your wallet</small>
+          <small>Total wallet balance</small>
         </article>
 
         <article className="cc-wallet-balance-card">
           <span>Available balance</span>
           <strong>
             {walletLoaded
-              ? `${available.toLocaleString("en-IN")} coins`
+              ? `₹${available.toLocaleString("en-IN")}`
               : "—"}
           </strong>
           <small>Available after reserved withdrawals</small>
@@ -532,7 +533,7 @@ export default function WalletPage() {
           <span>Reserved balance</span>
           <strong>
             {walletLoaded
-              ? `${reserved.toLocaleString("en-IN")} coins`
+              ? `₹${reserved.toLocaleString("en-IN")}`
               : "—"}
           </strong>
           <small>Temporarily reserved for pending requests</small>
@@ -556,7 +557,7 @@ export default function WalletPage() {
             setMessage("");
           }}
         >
-          Add Coins
+          Add Funds
         </button>
 
         <button
@@ -592,7 +593,7 @@ export default function WalletPage() {
       {activeTab === "deposit" && (
         <div className="cc-wallet-deposit-layout">
           <section className="cc-wallet-panel cc-wallet-payment-panel">
-            <h2>Deposit Coins</h2>
+            <h2>Add Funds</h2>
 
             <p className="cc-wallet-description">
               Pay using your UPI app. After paying, submit the
@@ -716,7 +717,7 @@ export default function WalletPage() {
             <p className="cc-wallet-payment-warning">
               Your request remains pending until an administrator
               verifies the payment. A screenshot does not automatically
-              credit coins.
+              update your balance.
             </p>
           </section>
 
@@ -745,7 +746,7 @@ export default function WalletPage() {
                   <thead>
                     <tr>
                       <th>Requested</th>
-                      <th>Amount</th>
+                      <th>Amount (₹)</th>
                       <th>UTR / Reference</th>
                       <th>Status</th>
                       <th>Rejection reason</th>
@@ -818,7 +819,7 @@ export default function WalletPage() {
 
               <form onSubmit={handleWithdrawal}>
                 <label htmlFor="wallet-coin-amount">
-                  Amount in coins
+                  Withdrawal amount (₹)
                 </label>
 
                 <input
@@ -831,12 +832,12 @@ export default function WalletPage() {
                   onChange={(event) =>
                     setCoinAmount(event.target.value)
                   }
-                  placeholder="Enter coin amount"
+                  placeholder="Enter amount in rupees"
                   required
                 />
 
                 <div className="cc-wallet-conversion">
-                  Current configured conversion: 1 coin = ₹1
+                  Available balance: ₹{available.toLocaleString("en-IN")}
                 </div>
 
                 <div className="cc-wallet-form-divider" />
@@ -1012,9 +1013,9 @@ export default function WalletPage() {
               <h2>Before you withdraw</h2>
 
               <ul className="cc-wallet-notes">
-                <li>Only available coins can be requested.</li>
+                <li>Only your available balance can be requested.</li>
                 <li>
-                  Requested coins are reserved while the request is pending.
+                  The requested amount is reserved while the request is pending.
                 </li>
                 <li>
                   Choose either UPI or bank transfer and provide the
@@ -1055,9 +1056,10 @@ export default function WalletPage() {
                   <thead>
                     <tr>
                       <th>Requested</th>
-                      <th>Coins</th>
                       <th>Amount</th>
                       <th>Status</th>
+                      <th>Payout UTR / Reference</th>
+                      <th>Rejection reason</th>
                     </tr>
                   </thead>
 
@@ -1065,12 +1067,6 @@ export default function WalletPage() {
                     {pageWithdrawals.map((item) => (
                       <tr key={item._id || item.reference}>
                         <td>{formatDate(item.createdAt)}</td>
-
-                        <td>
-                          {Number(item.coinAmount || 0).toLocaleString(
-                            "en-IN"
-                          )}
-                        </td>
 
                         <td>
                           ₹
@@ -1087,6 +1083,12 @@ export default function WalletPage() {
                           >
                             {item.status || "PENDING"}
                           </span>
+                        </td>
+                        <td className="cc-wallet-withdrawal-reference">
+                          {item.payoutReference || "—"}
+                        </td>
+                        <td className="cc-wallet-withdrawal-reason">
+                          {["REJECTED", "FAILED"].includes(item.status) ? item.failureReason || "Reason not provided" : "—"}
                         </td>
                       </tr>
                     ))}
@@ -1121,27 +1123,33 @@ export default function WalletPage() {
                     <th>Date</th>
                     <th>Transaction</th>
                     <th>Direction</th>
-                    <th>Coins</th>
+                    <th>Amount (₹)</th>
                     <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pageTransactions.map((transaction) => (
-                    <tr key={transaction._id || transaction.reference}>
-                      <td>{formatDate(transaction.createdAt)}</td>
-                      <td>
-                        {transaction.description || transaction.type}
-                        <small>{transaction.reference}</small>
-                      </td>
-                      <td>{transaction.direction}</td>
-                      <td>{Number(transaction.amount || 0).toLocaleString("en-IN")}</td>
-                      <td>
-                        <span className={`cc-wallet-status ${getStatusClass(transaction.status)}`}>
-                          {transaction.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {pageTransactions.map((transaction) => {
+                    const effect = getTransactionBalanceEffect(transaction);
+                    const directionLabel = effect.direction === "CREDITED"
+                      ? "Credited"
+                      : effect.direction === "DEBITED" ? "Debited" : "No balance change";
+                    return (
+                      <tr key={transaction._id || transaction.reference}>
+                        <td>{formatDate(transaction.createdAt)}</td>
+                        <td>
+                          <strong>{getTransactionTypeLabel(transaction.type)}</strong>
+                          {transaction.description && <small>{transaction.description}</small>}
+                        </td>
+                        <td><span className={`cc-wallet-direction ${effect.direction.toLowerCase()}`}>{directionLabel}</span></td>
+                        <td className={`cc-wallet-transaction-amount ${effect.direction.toLowerCase()}`}>{formatTransactionAmount(transaction)}</td>
+                        <td>
+                          <span className={`cc-wallet-status ${getStatusClass(transaction.status)}`}>
+                            {getTransactionStatusLabel(transaction.status)}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

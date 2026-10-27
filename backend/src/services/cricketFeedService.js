@@ -1,10 +1,12 @@
 import crypto from "node:crypto";
 import CricketFeedState from "../models/CricketFeedState.js";
+import Match from "../models/Match.js";
+import { enqueueTelegramNotification, formatMatchAnnouncement } from "./telegramNotificationService.js";
 
 const REFRESH_MS = 15 * 60 * 1000;
 const MAX_DAILY_REQUESTS = 96;
 const REQUEST_TIMEOUT_MS = 12_000;
-const LEASE_MS = 30_000;
+const LEASE_MS = 120_000;
 
 function parseProviderGMTDate(value) {
   if (!value) return null;
@@ -25,6 +27,7 @@ export function normalizeProviderMatch(row) {
   if (!row.id || !teamA || !teamB) return null;
 
   const providerStatus = String(row.ms || "").trim().toLowerCase();
+  const providerState = providerStatus;
   const description = String(row.status || "");
   const lowerDescription = description.toLowerCase();
   const looksFinished = /(won by|match over|completed|result|abandoned|cancelled|no result|draw|tied)/i.test(lowerDescription);
@@ -82,13 +85,120 @@ export function normalizeProviderMatch(row) {
     scoreB: scoreText(row.t2s ?? scores[1]),
     scoreSummary: typeof row.score === "string" ? row.score : null,
     innings,
-    format: String(row.matchType || "").toUpperCase() || null,
+    format: ["T10", "T20", "ODI", "TEST", "HUNDRED"].includes(String(row.matchType || "").toUpperCase()) ? String(row.matchType).toUpperCase() : "T20",
     series: String(row.series || row.name || "").trim() || null,
     venue: String(row.venue || row.venueName || row.ground || "").trim() || null,
     status: description || providerStatus || "Status unavailable",
+    providerState,
     category,
     startTime: validStart ? startsAt.toISOString() : null,
   };
+}
+
+export async function synchronizeProviderMatches(matches, { MatchModel = Match, now = new Date(), enqueueNotification = enqueueTelegramNotification } = {}) {
+  let inserted = 0;
+  let updated = 0;
+  for (const providerMatch of matches) {
+    if (!providerMatch?.externalId || !providerMatch.teamA || !providerMatch.teamB || !providerMatch.startTime) continue;
+    const providerFields = {
+      providerStatus: providerMatch.status || "Status unavailable",
+      providerState: providerMatch.providerState || "",
+      providerTeamA: providerMatch.teamA || "",
+      providerTeamB: providerMatch.teamB || "",
+      providerScoreA: providerMatch.scoreA || "",
+      providerScoreB: providerMatch.scoreB || "",
+      providerScoreSummary: providerMatch.scoreSummary || "",
+      providerVenue: providerMatch.venue || "",
+      providerStartTime: providerMatch.startTime ? new Date(providerMatch.startTime) : null,
+      providerLastSyncedAt: now,
+    };
+    const coreFields = {
+      competition: String(providerMatch.series || "Cricket").trim().slice(0, 100),
+      title: `${providerMatch.teamA} vs ${providerMatch.teamB}`.slice(0, 140),
+      teamA: providerMatch.teamA.slice(0, 80),
+      teamB: providerMatch.teamB.slice(0, 80),
+      format: providerMatch.format || "T20",
+      startTime: new Date(providerMatch.startTime),
+    };
+    try {
+      const prior = await MatchModel.findOne({ providerId: providerMatch.externalId })
+        .select("_id published providerAdminOverride providerStartTime providerTeamA providerTeamB teamA teamB competition format startTime venue")
+        .lean();
+      if (prior?.published === true) {
+        const notificationMatch = {
+          ...prior,
+          providerStatus: providerMatch.status || "Status unavailable",
+          providerScoreA: providerMatch.scoreA || "",
+          providerScoreB: providerMatch.scoreB || "",
+          providerScoreSummary: providerMatch.scoreSummary || "",
+          providerTeamA: providerMatch.teamA || prior.providerTeamA || "",
+          providerTeamB: providerMatch.teamB || prior.providerTeamB || "",
+          startTime: providerMatch.startTime ? new Date(providerMatch.startTime) : prior.startTime,
+          providerStartTime: providerMatch.startTime ? new Date(providerMatch.startTime) : prior.providerStartTime,
+          providerVenue: providerMatch.venue || prior.venue || "",
+          previousStartTime: prior.providerStartTime || prior.startTime || null,
+        };
+        for (const event of getProviderNotificationEvents(providerMatch, String(prior._id), prior.providerStartTime)) {
+          const announcement = formatMatchAnnouncement(event.name, {
+            ...notificationMatch,
+            providerStatus: event.statusText || notificationMatch.providerStatus,
+          }, { key: event.key });
+          if (!announcement) continue;
+          console.info("Published CricAPI match event detected.", { matchId: String(prior._id), event: event.name });
+          try { await enqueueNotification(announcement); }
+          catch (error) {
+            console.warn("CricAPI Telegram event enqueue failed.", { matchId: String(prior._id), event: event.name, code: String(error?.code || "TELEGRAM_ENQUEUE_FAILED").slice(0, 80) });
+            throw error;
+          }
+        }
+      }
+      const update = {
+        $set: providerFields,
+        ...(prior?.providerAdminOverride ? {} : { $setOnInsert: { ...coreFields, status: "upcoming", result: null, providerId: providerMatch.externalId, providerSource: "CRICAPI", providerAdminOverride: false, published: false, automaticContestGeneration: false, automaticContestTiers: [] } }),
+      };
+      const result = await MatchModel.updateOne({ providerId: providerMatch.externalId }, update, { upsert: !prior, runValidators: true, setDefaultsOnInsert: false });
+      if (prior) {
+        updated += 1;
+        if (!prior.providerAdminOverride) {
+          await MatchModel.updateOne({ _id: prior._id, providerAdminOverride: { $ne: true } }, { $set: coreFields }, { runValidators: true });
+        }
+      } else if (result.upsertedCount === 1) inserted += 1;
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      // A concurrent sync may have inserted the same provider ID after our read.
+      const raced = await MatchModel.findOne({ providerId: providerMatch.externalId }).select("_id providerAdminOverride published").lean();
+      if (!raced) throw error;
+      await MatchModel.updateOne({ _id: raced._id }, { $set: { ...providerFields, ...(raced.providerAdminOverride ? {} : coreFields) } }, { runValidators: true });
+      updated += 1;
+    }
+  }
+  console.info("CricAPI matches synchronized.", { received: matches.length, inserted, updated });
+  return { inserted, updated };
+}
+
+export function getProviderNotificationEvents(providerMatch, matchId, previousStartTime = null) {
+  const events = [];
+  const status = String(providerMatch?.status || "").trim();
+  const lower = status.toLowerCase();
+  const providerState = String(providerMatch?.providerState || providerMatch?.ms || "").trim().toLowerCase();
+  const notFinal = /\b(stumps|day\s*\d+|innings?\s*break|in progress|live|abandoned|cancelled|canceled|postponed|no result|no-result|draw|tied)\b/i.test(status);
+  if (providerState === "live" && !/\b(won by|match over|completed|abandoned|cancelled|canceled|no result|no-result|draw|tied)\b/i.test(status)) {
+    events.push({ name: "MATCH_STARTED", key: `match:${matchId}:started` });
+  }
+  if (providerState === "result" && providerMatch.category === "completed" && !notFinal) {
+    events.push({ name: "PROVIDER_FINAL_RESULT", key: `match:${matchId}:provider-final-result` });
+  }
+  if (/\b(stumps|postponed|abandoned|cancelled|canceled|delayed|delay|rain|no result|no-result)\b/i.test(lower)) {
+    const fingerprint = crypto.createHash("sha256").update(lower.replace(/\s+/g, " ")).digest("hex").slice(0, 16);
+    events.push({ name: "PROVIDER_MATCH_STATUS", key: `match:${matchId}:provider-status:${fingerprint}` });
+  }
+  const previousStart = previousStartTime ? new Date(previousStartTime).getTime() : NaN;
+  const currentStart = providerMatch?.startTime ? new Date(providerMatch.startTime).getTime() : NaN;
+  if (Number.isFinite(previousStart) && Number.isFinite(currentStart) && previousStart !== currentStart) {
+    const fingerprint = crypto.createHash("sha256").update(`${previousStart}:${currentStart}`).digest("hex").slice(0, 16);
+    events.push({ name: "PROVIDER_MATCH_STATUS", key: `match:${matchId}:provider-schedule:${fingerprint}`, statusText: "Match rescheduled - provider schedule updated" });
+  }
+  return events;
 }
 
 function utcDay(date) { return date.toISOString().slice(0, 10); }
@@ -146,10 +256,11 @@ export async function refreshCricketFeed() {
     if (payload.data.length === 0 && state.matches.length > 0) throw new Error("provider-empty-response");
     const matches = [...new Map(payload.data.map(normalizeProviderMatch).filter(Boolean).map((match) => [match.externalId, match])).values()];
     if (payload.data.length > 0 && matches.length === 0) throw new Error("provider-data-unusable");
+    const sync = await synchronizeProviderMatches(matches);
     await CricketFeedState.updateOne({ _id: "shared-live-feed", leaseToken: token }, { $set: {
       matches, lastSuccessAt: new Date(), lastOutcome: "success", nextRefreshAt: new Date(Date.now() + REFRESH_MS), leaseUntil: null, leaseToken: null,
     } });
-    return { refreshed: true, count: matches.length };
+    return { refreshed: true, count: matches.length, ...sync };
   } catch (error) {
     const outcome = error?.name === "TimeoutError" || error?.name === "AbortError" ? "timeout" : String(error?.message || "refresh-failed").startsWith("provider-http-429") ? "rate-limited" : "failed";
     console.warn("Cricket feed refresh failed; retaining cached data.", { outcome });
@@ -161,6 +272,7 @@ export async function refreshCricketFeed() {
 }
 
 export function startCricketFeedScheduler() {
+  console.info("CricAPI match synchronization scheduler started.", { intervalMs: REFRESH_MS });
   const run = async () => {
     try { await refreshCricketFeed(); }
     catch (error) { console.warn("Cricket feed scheduler could not refresh.", { code: String(error?.code || "database-error").slice(0, 60) }); }
@@ -168,4 +280,5 @@ export function startCricketFeedScheduler() {
   void run();
   const timer = setInterval(run, REFRESH_MS);
   timer.unref();
+  return () => clearInterval(timer);
 }

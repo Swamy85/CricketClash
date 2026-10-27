@@ -404,7 +404,7 @@ export function startContestDeadlineProcessor() {
         status: "upcoming",
         startTime: { $lte: now },
       })
-        .select("_id teamA teamB")
+        .select("_id published competition teamA teamB startTime venue")
         .lean();
 
       for (const match of matchesStarting) {

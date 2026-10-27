@@ -535,6 +535,17 @@
   color: #354156;
 }
 
+.cc-wallet-direction { display: inline-block; color: #68142d; font-size: 12px; font-weight: 800; }
+.cc-wallet-direction.credited, .cc-wallet-transaction-amount.credited { color: #167444; }
+.cc-wallet-direction.debited, .cc-wallet-transaction-amount.debited { color: #8a2340; }
+.cc-wallet-direction.no_change { color: #6b7280; }
+.cc-wallet-transaction-amount { font-variant-numeric: tabular-nums; font-weight: 800; white-space: nowrap; }
+.cc-wallet-status.completed { background: #e3f8eb; color: #167444; }
+.cc-wallet-status.reversed { background: #f4e8ed; color: #68142d; }
+
+.cc-wallet-withdrawal-reference { font-variant-numeric: tabular-nums; }
+.cc-wallet-withdrawal-reason { min-width: 220px; max-width: 360px; white-space: normal !important; overflow-wrap: anywhere; }
+
 .cc-wallet-table tbody tr:last-child td {
   border-bottom: 0;
 }

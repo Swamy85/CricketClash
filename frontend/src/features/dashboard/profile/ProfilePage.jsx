@@ -56,9 +56,6 @@ export default function ProfilePage() {
           <h1>Player profile</h1>
           <p>Your CricketClash profile, contest record, and account activity.</p>
         </div>
-        <div className="cc-profile-header-actions">
-          <button type="button" className="cc-button cc-button-maroon" onClick={() => logout()}>Log out</button>
-        </div>
       </header>
 
       <section className="cc-profile-panel" aria-labelledby="profile-info-title">
@@ -100,6 +97,16 @@ export default function ProfilePage() {
           <p>Password changes are confirmed through the registered email address.</p>
         </div>
       </section>
+
+      <footer className="cc-profile-signout" aria-label="Account sign out">
+        <div>
+          <h2>Sign out</h2>
+          <p>End your CricketClash session on this device.</p>
+        </div>
+        <button type="button" className="cc-button cc-button-maroon" onClick={() => logout("manual")}>
+          Log out
+        </button>
+      </footer>
     </section>
   );
 }

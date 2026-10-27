@@ -31,6 +31,21 @@ const matchSchema = new mongoose.Schema(
       default: undefined,
     },
 
+    providerId: { type: String, trim: true, maxlength: 100, default: null },
+    providerSource: { type: String, enum: ["CRICAPI", "MANUAL"], default: "MANUAL" },
+    providerStatus: { type: String, trim: true, maxlength: 200, default: "" },
+    providerState: { type: String, trim: true, maxlength: 30, default: "" },
+    providerTeamA: { type: String, trim: true, maxlength: 80, default: "" },
+    providerTeamB: { type: String, trim: true, maxlength: 80, default: "" },
+    providerScoreA: { type: String, trim: true, maxlength: 80, default: "" },
+    providerScoreB: { type: String, trim: true, maxlength: 80, default: "" },
+    providerScoreSummary: { type: String, trim: true, maxlength: 500, default: "" },
+    providerVenue: { type: String, trim: true, maxlength: 200, default: "" },
+    providerStartTime: { type: Date, default: null },
+    providerLastSyncedAt: { type: Date, default: null },
+    providerAdminOverride: { type: Boolean, default: false },
+    published: { type: Boolean, default: true },
+
     automaticContestGeneration: {
       type: Boolean,
       default: true,
@@ -114,6 +129,9 @@ const matchSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
+
+    // Retained so the notification worker can announce a confirmed reschedule.
+    previousStartTime: { type: Date, default: null },
   },
   {
     timestamps: true,
@@ -121,6 +139,7 @@ const matchSchema = new mongoose.Schema(
 );
 
 matchSchema.index({ status: 1, startTime: 1 });
+matchSchema.index({ providerId: 1 }, { unique: true, partialFilterExpression: { providerId: { $type: "string" } } });
 matchSchema.index(
   { creationRequestId: 1 },
   {

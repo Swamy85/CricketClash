@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useOutletContext, useNavigate } from "react-router-dom";
 import { getTeamCatalog } from "../../../services/matchService";
 import { fetchContestPageData } from "../contests/contestPageApi.js";
@@ -38,13 +38,6 @@ export default function LobbyPage() {
   const [now, setNow] = useState(Date.now());
   const [teams, setTeams] = useState([]);
   const [providerMatches, setProviderMatches] = useState([]);
-  const matchesScrollerRef = useRef(null);
-
-  function scrollMatches(direction) {
-    const scroller = matchesScrollerRef.current;
-    if (scroller) scroller.scrollBy({ left: direction * Math.max(scroller.clientWidth * 0.82, 280), behavior: "smooth" });
-  }
-
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
@@ -213,16 +206,10 @@ export default function LobbyPage() {
             </button>
           </div>
         ) : (
-          <div className="cc-lobby-match-carousel">
-            <div className="cc-lobby-match-controls" aria-label="Lobby match carousel controls">
-              <button type="button" aria-label="Scroll matches left" onClick={() => scrollMatches(-1)}>‹</button>
-              <button type="button" aria-label="Scroll matches right" onClick={() => scrollMatches(1)}>›</button>
-            </div>
-            <div className="cc-match-grid" ref={matchesScrollerRef} tabIndex={0} aria-label="Upcoming matches">
+          <div className="cc-match-grid" aria-label="Upcoming matches">
             {availableMatches.map((match) => (
               <MatchCard key={match._id} match={match} teams={teams} />
             ))}
-            </div>
           </div>
         )}
       </section>
