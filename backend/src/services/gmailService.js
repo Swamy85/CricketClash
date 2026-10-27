@@ -1,6 +1,10 @@
 import nodemailer from "nodemailer";
 
-export async function sendGmailEmail(message, { env = process.env, createTransport = nodemailer.createTransport } = {}) {
+export async function sendGmailEmail(message, {
+  env = process.env,
+  createTransport = nodemailer.createTransport,
+  fetchImpl = (...args) => fetch(...args),
+} = {}) {
   const smtpHost = String(env.SMTP_HOST || "").trim();
   const smtpPort = Number(env.SMTP_PORT);
   const smtpUser = String(env.SMTP_USER || "").trim();
@@ -9,6 +13,52 @@ export async function sendGmailEmail(message, { env = process.env, createTranspo
 
   const gmailUser = String(env.GMAIL_USER || "").trim();
   const gmailPassword = String(env.GMAIL_APP_PASSWORD || "").replace(/\s/g, "");
+
+  // Render's free web services block SMTP ports. Brevo's HTTPS API uses port
+  // 443, so prefer it whenever an API key is configured.
+  const brevoApiKey = String(env.BREVO_API_KEY || "").trim();
+  if (brevoApiKey) {
+    const senderEmail = smtpFrom || gmailUser;
+    if (!senderEmail) {
+      throw Object.assign(
+        new Error("Brevo sender email is not configured."),
+        { code: "EMAIL_CONFIGURATION" }
+      );
+    }
+
+    const response = await fetchImpl("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "api-key": brevoApiKey,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        sender: {
+          name: env.BREVO_SENDER_NAME || "CricketClash",
+          email: senderEmail,
+        },
+        to: [{ email: String(message.to).trim() }],
+        subject: message.subject,
+        ...(message.html ? { htmlContent: message.html } : {}),
+        ...(message.text ? { textContent: message.text } : {}),
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!response.ok) {
+      throw Object.assign(
+        new Error(`Brevo email API rejected the request (${response.status}).`),
+        { code: `BREVO_API_${response.status}` }
+      );
+    }
+
+    const result = await response.json();
+    return {
+      accepted: [String(message.to).trim()],
+      messageId: result.messageId,
+    };
+  }
 
   const hasConfiguredSmtp =
     smtpHost &&

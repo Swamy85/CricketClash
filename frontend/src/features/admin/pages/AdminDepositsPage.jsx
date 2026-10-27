@@ -180,6 +180,28 @@ export default function AdminDepositsPage() {
     setMessage("");
   }
 
+  async function retryNotification(deposit) {
+    setNotificationBusyId(deposit._id);
+    setError("");
+    setMessage("");
+    try {
+      const response = await adminFetch(
+        `/api/admin/deposits/${deposit._id}/notification/retry`,
+        { method: "POST" }
+      );
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Unable to retry the email notification.");
+      }
+      setMessage(data.message);
+      await loadDeposits({ silent: true });
+    } catch (err) {
+      setError(err.message || "Unable to retry the email notification.");
+    } finally {
+      setNotificationBusyId("");
+    }
+  }
+
   async function rejectDeposit() {
     if (!rejectingDeposit) return;
 
@@ -188,28 +210,6 @@ export default function AdminDepositsPage() {
     if (!reason || reason.length > 500) {
       setError("Enter a rejection reason between 1 and 500 characters.");
       return;
-    }
-
-    async function retryNotification(deposit) {
-      setNotificationBusyId(deposit._id);
-      setError("");
-      setMessage("");
-      try {
-        const response = await adminFetch(
-          `/api/admin/deposits/${deposit._id}/notification/retry`,
-          { method: "POST" }
-        );
-        const data = await response.json();
-        if (!response.ok || !data.success) {
-          throw new Error(data.message || "Unable to retry the email notification.");
-        }
-        setMessage(data.message);
-        await loadDeposits({ silent: true });
-      } catch (err) {
-        setError(err.message || "Unable to retry the email notification.");
-      } finally {
-        setNotificationBusyId("");
-      }
     }
 
     const depositId = rejectingDeposit._id;

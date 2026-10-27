@@ -175,6 +175,25 @@ export default function AdminWithdrawalsPage() {
     setFinalAction("");
   }
 
+  async function retryNotification(withdrawal) {
+    setNotificationRetryId(withdrawal._id);
+    setError("");
+    setMessage("");
+    try {
+      const response = await adminFetch(
+        `/api/admin/withdrawals/${withdrawal._id}/notification/retry`,
+        { method: "POST" }
+      );
+      const data = await readResponse(response);
+      setMessage(data.message || "Email notification retry finished.");
+      await loadWithdrawals({ silent: true });
+    } catch (retryError) {
+      setError(retryError.message || "Unable to retry the email notification.");
+    } finally {
+      setNotificationRetryId("");
+    }
+  }
+
   async function runAction(action, endpoint, body, successMessage) {
     if (!selectedWithdrawal || actionLoading) return;
 
@@ -217,24 +236,6 @@ export default function AdminWithdrawalsPage() {
         setSelectedWithdrawal(data.withdrawal);
       }
 
-      async function retryNotification(withdrawal) {
-        setNotificationRetryId(withdrawal._id);
-        setError("");
-        setMessage("");
-        try {
-          const response = await adminFetch(
-            `/api/admin/withdrawals/${withdrawal._id}/notification/retry`,
-            { method: "POST" }
-          );
-          const data = await readResponse(response);
-          setMessage(data.message || "Email notification retry finished.");
-          await loadWithdrawals({ silent: true });
-        } catch (retryError) {
-          setError(retryError.message || "Unable to retry the email notification.");
-        } finally {
-          setNotificationRetryId("");
-        }
-      }
     } catch (err) {
       setError(
         err.message || "Unable to update this withdrawal."
