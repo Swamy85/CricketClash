@@ -330,14 +330,19 @@ async function settleContest(contest, match) {
   }
 }
 
-export async function settleMatchContests(matchOrId) {
+export async function settleMatchContests(matchOrId, { MatchModel = Match, ContestModel = Contest } = {}) {
   const match = typeof matchOrId === "string" || matchOrId?._id
-    ? await Match.findById(matchOrId._id || matchOrId).lean()
+    ? await MatchModel.findById(matchOrId._id || matchOrId).lean()
     : matchOrId;
 
   if (!match || !isFinalMatch(match)) return;
 
-  const contests = await Contest.find({ match: match._id })
+  // CricAPI results are verified and settled by the provider outcome worker.
+  // The legacy path treats a missing Match.result as a refund condition, so it
+  // must not handle provider-only finals before that worker persists an outcome.
+  if (match.providerSource === "CRICAPI" && match.providerState === "result" && !match.result) return;
+
+  const contests = await ContestModel.find({ match: match._id })
     .sort({ createdAt: 1 })
     .lean();
 
