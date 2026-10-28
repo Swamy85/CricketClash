@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import CricketFeedState from "../models/CricketFeedState.js";
 import Match from "../models/Match.js";
 import { enqueueTelegramNotification, formatMatchAnnouncement } from "./telegramNotificationService.js";
+import { deriveProviderMatchOutcome } from "../modules/contests/contestOutcomeService.js";
 
 const REFRESH_MS = 15 * 60 * 1000;
 const MAX_DAILY_REQUESTS = 96;
@@ -98,32 +99,84 @@ export function normalizeProviderMatch(row) {
 export async function synchronizeProviderMatches(matches, { MatchModel = Match, now = new Date(), enqueueNotification = enqueueTelegramNotification } = {}) {
   let inserted = 0;
   let updated = 0;
+  let skipped = 0;
+  let notificationFailures = 0;
   for (const providerMatch of matches) {
-    if (!providerMatch?.externalId || !providerMatch.teamA || !providerMatch.teamB || !providerMatch.startTime) continue;
+    if (!providerMatch?.externalId || !providerMatch.teamA || !providerMatch.teamB) {
+      skipped += 1;
+      console.warn("CricAPI match row skipped: provider ID or team mapping is missing.", {
+        hasProviderId: Boolean(providerMatch?.externalId), hasTeamA: Boolean(providerMatch?.teamA), hasTeamB: Boolean(providerMatch?.teamB),
+      });
+      continue;
+    }
+    const validStartTime = providerMatch.startTime && Number.isFinite(new Date(providerMatch.startTime).getTime())
+      ? new Date(providerMatch.startTime) : null;
+    const providerState = String(providerMatch.providerState || "").trim().toLowerCase();
     const providerFields = {
-      providerStatus: providerMatch.status || "Status unavailable",
-      providerState: providerMatch.providerState || "",
-      providerTeamA: providerMatch.teamA || "",
-      providerTeamB: providerMatch.teamB || "",
-      providerScoreA: providerMatch.scoreA || "",
-      providerScoreB: providerMatch.scoreB || "",
-      providerScoreSummary: providerMatch.scoreSummary || "",
-      providerVenue: providerMatch.venue || "",
-      providerStartTime: providerMatch.startTime ? new Date(providerMatch.startTime) : null,
+      providerStatus: String(providerMatch.status || "Status unavailable").slice(0, 200),
+      providerState: providerState.slice(0, 30),
+      providerTeamA: String(providerMatch.teamA || "").slice(0, 80),
+      providerTeamB: String(providerMatch.teamB || "").slice(0, 80),
+      providerScoreA: String(providerMatch.scoreA || "").slice(0, 80),
+      providerScoreB: String(providerMatch.scoreB || "").slice(0, 80),
+      providerScoreSummary: String(providerMatch.scoreSummary || "").slice(0, 500),
+      providerVenue: String(providerMatch.venue || "").slice(0, 200),
       providerLastSyncedAt: now,
     };
+    if (validStartTime) providerFields.providerStartTime = validStartTime;
     const coreFields = {
       competition: String(providerMatch.series || "Cricket").trim().slice(0, 100),
       title: `${providerMatch.teamA} vs ${providerMatch.teamB}`.slice(0, 140),
       teamA: providerMatch.teamA.slice(0, 80),
       teamB: providerMatch.teamB.slice(0, 80),
       format: providerMatch.format || "T20",
-      startTime: new Date(providerMatch.startTime),
+      ...(validStartTime ? { startTime: validStartTime } : {}),
     };
     try {
       const prior = await MatchModel.findOne({ providerId: providerMatch.externalId })
-        .select("_id published providerAdminOverride providerStartTime providerTeamA providerTeamB teamA teamB competition format startTime venue")
+        .select("_id published providerAdminOverride providerSource providerStartTime providerTeamA providerTeamB teamA teamB competition format startTime venue status result")
         .lean();
+      if (!prior && !validStartTime) {
+        skipped += 1;
+        console.warn("CricAPI match row not inserted: no valid start time for required Match field.", {
+          hasProviderId: true, providerState,
+        });
+        continue;
+      }
+
+      // Provider state is independent of admin publication and team/schedule overrides.
+      // Only a verified final outcome can move the app-facing match status to completed.
+      let syncedStatus;
+      const adminFinalized = prior && (prior.result != null || ["completed", "cancelled", "abandoned"].includes(prior.status));
+      if (!adminFinalized && providerState === "live" && providerMatch.category === "live") syncedStatus = "live";
+      if (!adminFinalized && providerState === "result") {
+        const outcome = deriveProviderMatchOutcome({
+          providerSource: "CRICAPI", providerState, providerStatus: providerMatch.status,
+          providerTeamA: providerMatch.teamA, providerTeamB: providerMatch.teamB,
+          teamA: prior?.teamA || providerMatch.teamA, teamB: prior?.teamB || providerMatch.teamB,
+        });
+        if (outcome && outcome.type !== "AMBIGUOUS") {
+          syncedStatus = outcome.type === "ABANDONED" ? "abandoned" : "completed";
+        }
+      }
+      if (!adminFinalized && providerState === "fixture") syncedStatus = "upcoming";
+      if (!adminFinalized && providerState === "result" && /\b(cancelled|canceled)\b/i.test(String(providerMatch.status || ""))) syncedStatus = "cancelled";
+
+      // Persist provider state before any Telegram enqueue. Notification failures must not
+      // prevent the result/outcome worker from seeing this synchronization.
+      const setFields = { ...providerFields, ...(prior && syncedStatus ? { status: syncedStatus } : {}) };
+      const update = {
+        $set: setFields,
+        ...(!prior ? { $setOnInsert: { ...coreFields, status: syncedStatus || "upcoming", result: null, providerId: providerMatch.externalId, providerSource: "CRICAPI", providerAdminOverride: false, published: false, automaticContestGeneration: false, automaticContestTiers: [] } } : {}),
+      };
+      const result = await MatchModel.updateOne({ providerId: providerMatch.externalId }, update, { upsert: !prior, runValidators: true, setDefaultsOnInsert: false });
+      if (prior) {
+        updated += 1;
+        if (!prior.providerAdminOverride && validStartTime) {
+          await MatchModel.updateOne({ _id: prior._id, providerAdminOverride: { $ne: true } }, { $set: coreFields }, { runValidators: true });
+        }
+      } else if (result.upsertedCount === 1) inserted += 1;
+
       if (prior?.published === true) {
         const notificationMatch = {
           ...prior,
@@ -133,8 +186,8 @@ export async function synchronizeProviderMatches(matches, { MatchModel = Match, 
           providerScoreSummary: providerMatch.scoreSummary || "",
           providerTeamA: providerMatch.teamA || prior.providerTeamA || "",
           providerTeamB: providerMatch.teamB || prior.providerTeamB || "",
-          startTime: providerMatch.startTime ? new Date(providerMatch.startTime) : prior.startTime,
-          providerStartTime: providerMatch.startTime ? new Date(providerMatch.startTime) : prior.providerStartTime,
+          startTime: validStartTime || prior.startTime,
+          providerStartTime: validStartTime || prior.providerStartTime,
           providerVenue: providerMatch.venue || prior.venue || "",
           previousStartTime: prior.providerStartTime || prior.startTime || null,
         };
@@ -147,22 +200,11 @@ export async function synchronizeProviderMatches(matches, { MatchModel = Match, 
           console.info("Published CricAPI match event detected.", { matchId: String(prior._id), event: event.name });
           try { await enqueueNotification(announcement); }
           catch (error) {
+            notificationFailures += 1;
             console.warn("CricAPI Telegram event enqueue failed.", { matchId: String(prior._id), event: event.name, code: String(error?.code || "TELEGRAM_ENQUEUE_FAILED").slice(0, 80) });
-            throw error;
           }
         }
       }
-      const update = {
-        $set: providerFields,
-        ...(prior?.providerAdminOverride ? {} : { $setOnInsert: { ...coreFields, status: "upcoming", result: null, providerId: providerMatch.externalId, providerSource: "CRICAPI", providerAdminOverride: false, published: false, automaticContestGeneration: false, automaticContestTiers: [] } }),
-      };
-      const result = await MatchModel.updateOne({ providerId: providerMatch.externalId }, update, { upsert: !prior, runValidators: true, setDefaultsOnInsert: false });
-      if (prior) {
-        updated += 1;
-        if (!prior.providerAdminOverride) {
-          await MatchModel.updateOne({ _id: prior._id, providerAdminOverride: { $ne: true } }, { $set: coreFields }, { runValidators: true });
-        }
-      } else if (result.upsertedCount === 1) inserted += 1;
     } catch (error) {
       if (error?.code !== 11000) throw error;
       // A concurrent sync may have inserted the same provider ID after our read.
@@ -172,7 +214,7 @@ export async function synchronizeProviderMatches(matches, { MatchModel = Match, 
       updated += 1;
     }
   }
-  console.info("CricAPI matches synchronized.", { received: matches.length, inserted, updated });
+  console.info("CricAPI matches synchronized.", { received: matches.length, inserted, updated, skipped, notificationFailures });
   return { inserted, updated };
 }
 
@@ -274,7 +316,11 @@ export async function refreshCricketFeed() {
 export function startCricketFeedScheduler() {
   console.info("CricAPI match synchronization scheduler started.", { intervalMs: REFRESH_MS });
   const run = async () => {
-    try { await refreshCricketFeed(); }
+    try {
+      const result = await refreshCricketFeed();
+      if (result.refreshed) console.info("CricAPI scheduled synchronization completed.", { matches: result.count, inserted: result.inserted, updated: result.updated });
+      else console.info("CricAPI scheduled synchronization skipped.", { reason: result.reason });
+    }
     catch (error) { console.warn("Cricket feed scheduler could not refresh.", { code: String(error?.code || "database-error").slice(0, 60) }); }
   };
   void run();

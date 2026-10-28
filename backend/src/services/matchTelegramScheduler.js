@@ -60,7 +60,7 @@ export async function processMatchNotifications({ MatchModel = Match, now = new 
       ] },
     ],
   })
-    .select("_id published competition teamA teamB status result resultRevision pendingResultCorrection startTime previousStartTime venue updatedAt createdAt")
+    .select("_id published competition teamA teamB format status result resultRevision pendingResultCorrection startTime previousStartTime venue providerVenue providerStartTime providerStatus providerScoreA providerScoreB providerScoreSummary updatedAt createdAt")
     .lean();
   console.info("Match notification check started.", { matches: matches.length });
   let detected = 0;

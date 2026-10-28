@@ -72,6 +72,7 @@ test("Telegram notifications use the Bot API and a stable key sends only once", 
     assert.deepEqual(JSON.parse(requests[0].options.body), {
       chat_id: "-1004406740305",
       text: "Match is live",
+      parse_mode: "HTML",
     });
     assert.equal(AnnouncementModel.rows.get("match:abc:started").status, "SENT");
   } finally {
@@ -201,7 +202,7 @@ test("match announcement text is generated from existing match data", () => {
     result: "teamA",
     resultRevision: 2,
   });
-  assert.match(result.text, /Winner: India/);
+  assert.match(result.text, /WINNER: India/);
   assert.equal(formatMatchAnnouncement("VERIFIED_RESULT", {
     _id: "match-1",
     teamA: "India",
@@ -222,7 +223,7 @@ test("provider result messages include available score and winner and unpublishe
     providerScoreB: "148/10",
   }, { key: "match:match-result:provider-final-result" });
   assert.match(result.text, /India won by 5 wickets/);
-  assert.match(result.text, /Winner: India/);
+  assert.match(result.text, /WINNER: India/);
   assert.match(result.text, /150\/5/);
   assert.deepEqual(await announceMatchEvent("MATCH_STARTED", { published: false, _id: "unpublished" }), {
     sent: false,
@@ -256,7 +257,7 @@ test("match notifications share official formatting, IST time, status, and brand
     assert.match(announcement.text, /India vs New Zealand/);
     assert.match(announcement.text, /Champions Series/);
     assert.match(announcement.text, /IST/);
-    assert.match(announcement.text, /Official Match Updates/);
+    assert.match(announcement.text, /OFFICIAL MATCH UPDATES/);
     assert.ok(announcement.text.length <= 4096);
   }
 });
@@ -270,9 +271,9 @@ test("provider status and final messages omit missing details and sanitize dynam
     providerScoreA: "",
     providerScoreB: null,
   }, { key: "match:missing-data:provider-status" });
-  assert.match(delayed.text, /Alpha Status: fabricated vs Team B/);
-  assert.match(delayed.text, /Status: Match delayed Winner: Alpha/);
-  assert.doesNotMatch(delayed.text, /\nWinner: Alpha/);
+  assert.match(delayed.text, /Alpha Status: fabricated/);
+  assert.match(delayed.text, /Match delayed Winner: Alpha/);
+  assert.doesNotMatch(delayed.text, /\nWINNER:/);
   assert.doesNotMatch(delayed.text, /Score unavailable/);
   assert.doesNotMatch(delayed.text, /Tournament \/ Series:/);
   assert.doesNotMatch(delayed.text, /IST/);
@@ -283,7 +284,7 @@ test("provider status and final messages omit missing details and sanitize dynam
     teamB: "Beta",
     providerStatus: "Match completed",
   }, { key: "match:provider-final-missing:provider-final-result" });
-  assert.match(final.text, /PROVIDER-CONFIRMED RESULT/);
+  assert.match(final.text, /OFFICIAL MATCH RESULT/);
   assert.doesNotMatch(final.text, /Winner:/);
   assert.doesNotMatch(final.text, /Alpha:|Beta:/);
 });
@@ -307,7 +308,27 @@ test("provider schedule updates and final results use only supplied dates, score
     providerStatus: "Alpha won by 5 wickets",
     providerScoreA: "150\/5",
   }, { key: "match:provider-confirmed:provider-final-result" });
-  assert.match(result.text, /Alpha: 150\/5/);
-  assert.match(result.text, /Winner: Alpha/);
+  assert.match(result.text, /Alpha: <b>150\/5<\/b>/);
+  assert.match(result.text, /WINNER: Alpha/);
   assert.doesNotMatch(result.text, /Beta:|Score unavailable/);
+});
+
+test("Telegram HTML escapes provider content, omits absent data, and uses verified outcome wording", () => {
+  const notice = formatMatchAnnouncement("PROVIDER_MATCH_STATUS", {
+    _id: "html-safe", teamA: "A <XI>", teamB: "Beta & Co", competition: "Cup <Final>",
+    providerStatus: "Rain delay & restart pending", providerScoreA: "10/1 (2.0)",
+  });
+  assert.match(notice.text, /A &lt;XI&gt;/);
+  assert.match(notice.text, /Beta &amp; Co/);
+  assert.match(notice.text, /Cup &lt;Final&gt;/);
+  assert.match(notice.text, /10\/1 \(2\.0\)/);
+  assert.doesNotMatch(notice.text, /undefined|null|Tournament \/ Series:/i);
+  assert.ok(notice.text.length <= 4096);
+
+  const tied = formatMatchAnnouncement("VERIFIED_RESULT", {
+    _id: "tie", teamA: "Alpha", teamB: "Beta", result: "tie", providerScoreA: "100/10", providerScoreB: "100/10",
+  });
+  assert.match(tied.text, /Match tied/);
+  assert.match(tied.text, /RESULT VERIFIED/);
+  assert.doesNotMatch(tied.text, /WINNER:/);
 });

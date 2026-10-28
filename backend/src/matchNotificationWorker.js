@@ -38,6 +38,10 @@ async function start() {
   await TelegramAnnouncement.createIndexes();
   console.info("Match notification worker connected to MongoDB.");
   console.info("Contest queue index initialization complete.", queueIndexMigration);
+  console.info("Match worker integrations configured.", {
+    cricketApiKeyPresent: Boolean(process.env.CRICKET_API_KEY),
+    telegramConfigured: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
+  });
   stopScheduler = startMatchTelegramScheduler();
   stopCricketFeedScheduler = startCricketFeedScheduler();
   process.on("SIGTERM", () => void shutdown("SIGTERM"));

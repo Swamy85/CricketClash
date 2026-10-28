@@ -103,11 +103,11 @@ test("CricAPI events are queued only for published matches and use stable event 
   await synchronizeProviderMatches([provider], { MatchModel: model, enqueueNotification: async (event) => sent.push(event) });
   assert.equal(sent.length, 1);
   assert.equal(sent[0].key, "match:published-1:started");
-  assert.match(sent[0].text, /CRICKETCLASH \| MATCH UPDATE/);
+  assert.match(sent[0].text, /CRICKETCLASH \| LIVE MATCH CENTER/);
   assert.match(sent[0].text, /Alpha vs Beta/);
-  assert.match(sent[0].text, /Tournament \/ Series: Series/);
+  assert.match(sent[0].text, /Series/);
   assert.match(sent[0].text, /IST/);
-  assert.match(sent[0].text, /Official Match Updates/);
+  assert.match(sent[0].text, /OFFICIAL MATCH UPDATES/);
 });
 
 test("provider schedule timestamps remain UTC instants", () => {
@@ -128,6 +128,80 @@ test("provider events are not announced for imported matches awaiting admin publ
     status: "Live", providerState: "live", category: "live",
   }], { MatchModel: model, enqueueNotification: async () => { notifications += 1; } });
   assert.equal(notifications, 0);
+});
+
+test("valid result sync persists by provider ID without a new schedule and before notification errors", async () => {
+  const row = {
+    _id: "mongo-match-id", providerId: "cricapi-real-id", providerSource: "CRICAPI", published: true,
+    providerAdminOverride: true, teamA: "Alpha", teamB: "Beta", status: "live",
+    startTime: new Date("2030-01-02T12:30:00Z"),
+  };
+  let persistedBeforeNotify = false;
+  const model = {
+    findOne(filter) {
+      assert.equal(filter.providerId, "cricapi-real-id");
+      return { select: () => ({ lean: async () => ({ ...row }) }) };
+    },
+    async updateOne(filter, update) {
+      assert.deepEqual(filter, { providerId: "cricapi-real-id" });
+      Object.assign(row, update.$set);
+      persistedBeforeNotify = row.providerState === "result" && row.providerScoreA === "121/6";
+      return { modifiedCount: 1 };
+    },
+  };
+  const provider = normalizeProviderMatch({
+    id: "cricapi-real-id", ms: "result", status: "Alpha won by 4 wickets",
+    t1: "Alpha", t2: "Beta", t1s: "121/6", t2s: "120/8",
+  });
+  assert.equal(provider.startTime, null);
+  const result = await synchronizeProviderMatches([provider], {
+    MatchModel: model,
+    now: new Date("2030-01-02T15:00:00Z"),
+    enqueueNotification: async () => { assert.equal(persistedBeforeNotify, true); throw new Error("Telegram temporarily unavailable"); },
+  });
+  assert.deepEqual(result, { inserted: 0, updated: 1 });
+  assert.equal(row._id, "mongo-match-id");
+  assert.equal(row.providerId, "cricapi-real-id");
+  assert.equal(row.providerLastSyncedAt.toISOString(), "2030-01-02T15:00:00.000Z");
+  assert.equal(row.providerState, "result");
+  assert.equal(row.providerScoreB, "120/8");
+  assert.equal(row.status, "completed");
+  assert.equal(row.published, true);
+});
+
+test("unverified provider result does not complete a match", async () => {
+  const row = {
+    _id: "mongo-match-id", providerId: "cricapi-ambiguous", published: true,
+    providerAdminOverride: true, teamA: "Alpha", teamB: "Beta", status: "live",
+  };
+  const model = {
+    findOne() { return { select: () => ({ lean: async () => ({ ...row }) }) }; },
+    async updateOne(_filter, update) { Object.assign(row, update.$set); return { modifiedCount: 1 }; },
+  };
+  await synchronizeProviderMatches([{
+    externalId: "cricapi-ambiguous", teamA: "Alpha", teamB: "Beta", status: "Match completed",
+    providerState: "result", category: "completed", scoreA: null, scoreB: null,
+  }], { MatchModel: model, enqueueNotification: async () => {} });
+  assert.equal(row.providerState, "result");
+  assert.equal(row.status, "live");
+});
+
+test("provider fixture updates do not reopen an admin-finalized match", async () => {
+  const row = {
+    _id: "mongo-match-id", providerId: "cricapi-finalized", published: true,
+    providerAdminOverride: true, teamA: "Alpha", teamB: "Beta", status: "cancelled", result: "cancelled",
+  };
+  const model = {
+    findOne() { return { select: () => ({ lean: async () => ({ ...row }) }) }; },
+    async updateOne(_filter, update) { Object.assign(row, update.$set); return { modifiedCount: 1 }; },
+  };
+  await synchronizeProviderMatches([{
+    externalId: "cricapi-finalized", teamA: "Alpha", teamB: "Beta", status: "Fixture",
+    providerState: "fixture", category: "upcoming", startTime: "2030-01-02T12:30:00.000Z",
+  }], { MatchModel: model, enqueueNotification: async () => {} });
+  assert.equal(row.providerState, "fixture");
+  assert.equal(row.status, "cancelled");
+  assert.equal(row.result, "cancelled");
 });
 
 test("embedded innings scorecard maps only fields actually supplied", () => {

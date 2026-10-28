@@ -92,9 +92,18 @@ export async function processProviderContestOutcomes({ MatchModel = Match, Conte
 
   let considered = 0;
   let processed = 0;
+  let unverifiedMatches = 0;
+  let eligibleContestCandidates = 0;
   for (const match of matches) {
     const outcome = deriveProviderMatchOutcome(match);
-    if (!outcome) continue;
+    if (!outcome) {
+      unverifiedMatches += 1;
+      console.info("Provider match outcome deferred: provider result is missing or not final.", {
+        matchId: String(match._id), providerMatchId: String(match.providerId || ""),
+        providerState: String(match.providerState || ""),
+      });
+      continue;
+    }
     const signature = signatureFor(match, outcome);
     const contests = await ContestModel.find({
       match: match._id,
@@ -106,6 +115,7 @@ export async function processProviderContestOutcomes({ MatchModel = Match, Conte
 
     // Publication belongs to Match; this field is not stored redundantly on a contest.
     const linkedContests = contests.filter((contest) => String(contest.match) === String(match._id));
+    eligibleContestCandidates += linkedContests.length;
     for (const contest of linkedContests) {
       considered += 1;
       if (!hasEligibleHeadToHead(contest)) {
@@ -158,7 +168,9 @@ export async function processProviderContestOutcomes({ MatchModel = Match, Conte
       }
     }
   }
-  console.info("Provider contest outcome check finished.", { matches: matches.length, considered, processed });
+  console.info("Provider contest outcome check finished.", {
+    providerResultMatches: matches.length, unverifiedMatches, eligibleContestCandidates, considered, processed,
+  });
   return { matches: matches.length, considered, processed };
 }
 
