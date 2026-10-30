@@ -174,6 +174,8 @@ app.use(
 
 
 
+
+
 app.use(jsonBodyParser);
 app.use(rejectUnsafeRequestKeys);
 
@@ -1521,6 +1523,14 @@ app.use("/api/admin/reports", authenticate, requireAdmin, adminReportRoutes);
 // 18. Handle unknown API routes and errors
 
 // --------------------------------------------------
+
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "CricketClash API is running",
+    timestamp: new Date().toISOString(),
+  });
+});
 
 
 
