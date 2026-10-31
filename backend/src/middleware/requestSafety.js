@@ -2,7 +2,13 @@ import express from "express";
 
 const FORBIDDEN_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 
-export const jsonBodyParser = express.json({ limit: "20kb" });
+export const jsonBodyParser = express.json({ limit: "10kb" });
+
+export const urlencodedBodyParser = express.urlencoded({
+  extended: true,
+  limit: "10kb",
+  parameterLimit: 100,
+});
 
 function hasUnsafeKey(value) {
   const pending = [value];

@@ -9,6 +9,10 @@ import dotenv from "dotenv";
 
 import cors from "cors";
 
+import helmet from "helmet";
+
+import hpp from "hpp";
+
 import bcrypt from "bcryptjs";
 
 import jwt from "jsonwebtoken";
@@ -36,7 +40,10 @@ import { findPlayerWithValidPassword } from "./services/playerCredentialService.
 import { changeAccountPassword, normalizeNotificationPreferences, updateNotificationPreferences } from "./services/accountSettingsService.js";
 
 import requireAdmin from "./middleware/requireAdmin.js";
-import { jsonBodyParser, rejectUnsafeRequestKeys, unexpectedFields } from "./middleware/requestSafety.js";
+import { jsonBodyParser, urlencodedBodyParser, rejectUnsafeRequestKeys, unexpectedFields } from "./middleware/requestSafety.js";
+import { mongoSanitize } from "./middleware/mongoSanitize.js";
+import { globalLimiter } from "./middleware/rateLimiter.js";
+import { corsOptions } from "./config/corsOptions.js";
 import { createRateLimiter, createFailedAttemptTracker, nextOtpFailure } from "./middleware/authSecurity.js";
 import { createAuthenticateMiddleware, createLogoutHandler } from "./middleware/sessionAuth.js";
 
@@ -76,13 +83,18 @@ const app = express();
 
 const PORT = process.env.PORT || 5000;
 
+// Express must know how many reverse proxies sit in front of it so req.ip
+// reflects the client address (used by rate limiting and security logging).
+const TRUST_PROXY = String(process.env.TRUST_PROXY || "").trim();
+if (TRUST_PROXY === "true") {
+  app.set("trust proxy", true);
+} else if (/^\d+$/.test(TRUST_PROXY)) {
+  app.set("trust proxy", Number(TRUST_PROXY));
+} else if (process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
 
-
-const FRONTEND_URL =
-
-  process.env.FRONTEND_URL || "http://localhost:5173";
-
-
+app.disable("x-powered-by");
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -160,28 +172,30 @@ if (!JWT_SECRET || JWT_SECRET.length < 32) {
 
 
 
-app.use(
+// 1. Security HTTP headers
+app.use(helmet());
 
-  cors({
+// 2. CORS handling (explicit origins only, because cookies are allowed)
+app.use(cors(corsOptions));
 
-    origin: FRONTEND_URL,
-
-    credentials: true,
-
-  })
-
-);
-
-
-
-
-
+// 3. Body parsers with payload limits, then cookie parsing
 app.use(jsonBodyParser);
+app.use(urlencodedBodyParser);
+app.use(cookieParser());
+
+// 4. Strip MongoDB operators/dotted keys from untrusted input
+app.use(mongoSanitize);
+
+// 5. Reject prototype-pollution and other unsafe object keys
 app.use(rejectUnsafeRequestKeys);
 
-app.use("/api/support", supportRoutes);
+// 6. Prevent HTTP parameter pollution
+app.use(hpp());
 
-app.use(cookieParser());
+// 7. Global API rate limiting
+app.use("/api", globalLimiter);
+
+app.use("/api/support", supportRoutes);
 
 
 
